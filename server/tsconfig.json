@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    // Target a modern Node runtime — Node 24 supports ES2023 features natively.
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    // Load Node's ambient type declarations (process, console, Buffer, ...).
+    // TypeScript 7 does not auto-include @types/node, so we name it explicitly.
+    "types": ["node"],
+
+    // We write ES modules ("type": "module" in package.json).
+    "module": "ESNext",
+
+    // tsx (esbuild) resolves modules at runtime, so we use Bundler resolution:
+    // it lets us write extensionless relative imports (./config instead of ./config.js).
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+
+    // Catch as many mistakes as possible — this is a learning project.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // We never emit JS from tsc; tsx runs the .ts directly. tsc is type-check only.
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
