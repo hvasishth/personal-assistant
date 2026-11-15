@@ -10,6 +10,7 @@ import { createProvider } from "./llm";
 import { makeChatRoute } from "./routes/chat";
 import { createPool, type Pool } from "./db";
 import { makeAuthRouter } from "./auth/routes";
+import { makeRequireAuth } from "./auth/middleware";
 import { log } from "./logger";
 
 // Build the Express application.
@@ -38,8 +39,11 @@ export function createApp(
   // Auth (Step 4): signup / login / logout / me.
   app.use("/auth", makeAuthRouter(pool));
 
-  // The streaming chat endpoint (Step 2). Streams the assistant reply as SSE.
-  app.post("/api/chat", makeChatRoute(provider));
+  // The streaming chat endpoint (Step 2) — now behind auth (Step 4). A valid
+  // session token (Authorization: Bearer <token>) is required; requireAuth
+  // short-circuits with 401 otherwise, so the handler only runs when authed.
+  const requireAuth = makeRequireAuth(pool);
+  app.post("/api/chat", requireAuth, makeChatRoute(provider));
 
   // Anything unmatched falls through to here -> 404.
   app.use((_req: Request, res: Response) => {
