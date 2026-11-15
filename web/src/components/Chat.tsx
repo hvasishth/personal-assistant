@@ -1,17 +1,35 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { streamChat, type ChatMessage } from "../api";
+import { streamChat, loadConversation, type ChatMessage } from "../api";
 
-// The chat screen. Holds the conversation in memory, streams the assistant's
-// reply token-by-token into a placeholder message, and auto-scrolls.
-export function Chat() {
+// The chat screen for ONE conversation. `conversationId` is owned by App (so the
+// sidebar can switch conversations); App remounts this component via key when it
+// changes, so local state resets cleanly. On mount we load the conversation's
+// prior messages; `onTurnComplete` lets App refresh the sidebar after a turn
+// (so a brand-new conversation's title appears and ordering updates).
+export function Chat({
+  conversationId,
+  onTurnComplete,
+}: {
+  conversationId: string;
+  onTurnComplete?: () => void;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // One conversation per mounted Chat for now. Minted once; the server creates
-  // the row on the first turn and enforces that it's ours thereafter.
-  const [conversationId] = useState(() => crypto.randomUUID());
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load this conversation's history on mount. Returns [] for a brand-new
+  // conversation (not yet persisted) or one that isn't ours (server 404s).
+  useEffect(() => {
+    let cancelled = false;
+    loadConversation(conversationId).then((msgs) => {
+      if (!cancelled) setMessages(msgs);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   // Keep the latest message in view as content grows.
   useEffect(() => {
@@ -59,6 +77,8 @@ export function Chat() {
       setError(err instanceof Error ? err.message : "chat failed");
     } finally {
       setStreaming(false);
+      // Surface a new conversation in the sidebar / update its order & title.
+      onTurnComplete?.();
     }
   }
 

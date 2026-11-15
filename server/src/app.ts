@@ -8,6 +8,7 @@ import type { Config } from "./config";
 import type { LLMProvider } from "./llm/types";
 import { createProvider } from "./llm";
 import { makeChatRoute } from "./routes/chat";
+import { makeConversationsRouter } from "./routes/conversations";
 import { createPool, type Pool } from "./db";
 import { makeAuthRouter } from "./auth/routes";
 import { makeRequireAuth } from "./auth/middleware";
@@ -45,6 +46,9 @@ export function createApp(
   // so the handler only runs when authed (and req.userId is set).
   const requireAuth = makeRequireAuth(pool);
   app.post("/api/chat", requireAuth, makeChatRoute(provider, pool));
+
+  // Conversation list + history for the sidebar (Step 4), also behind auth.
+  app.use("/api/conversations", requireAuth, makeConversationsRouter(pool));
 
   // Anything unmatched falls through to here -> 404.
   app.use((_req: Request, res: Response) => {

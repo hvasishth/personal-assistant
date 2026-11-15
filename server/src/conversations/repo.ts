@@ -27,6 +27,13 @@ export interface MessageRow {
   created_at: string;
 }
 
+export interface ConversationRow {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Create the conversation if it doesn't exist, then return its owner's user_id
 // so the caller can enforce ownership (a user must not write into someone
 // else's conversation by guessing a UUID). Written insert-then-read so a race
@@ -51,6 +58,34 @@ export async function getOrCreateConversation(
   const row = rows[0];
   if (!row) throw new Error("conversation vanished after insert");
   return row.user_id;
+}
+
+// List a user's conversations, most-recently-active first (for the sidebar).
+export async function listConversations(
+  pool: Pool,
+  userId: string,
+): Promise<ConversationRow[]> {
+  const { rows } = await pool.query<ConversationRow>(
+    `SELECT id, title, created_at, updated_at
+       FROM conversations
+      WHERE user_id = $1
+      ORDER BY updated_at DESC`,
+    [userId],
+  );
+  return rows;
+}
+
+// Look up a conversation's owner (read-only, no create) so a route can enforce
+// ownership before loading its messages. Returns undefined if it doesn't exist.
+export async function findConversationOwner(
+  pool: Pool,
+  id: string,
+): Promise<string | undefined> {
+  const { rows } = await pool.query<{ user_id: string }>(
+    `SELECT user_id FROM conversations WHERE id = $1`,
+    [id],
+  );
+  return rows[0]?.user_id;
 }
 
 // Insert the user's turn. Returns true if newly inserted, false if a row with

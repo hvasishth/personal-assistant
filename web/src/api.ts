@@ -28,6 +28,14 @@ export interface ChatRequest {
   assistantMessageId: string;
 }
 
+// A conversation as shown in the sidebar.
+export interface Conversation {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- Auth ------------------------------------------------------------------
 
 async function postAuth(
@@ -65,6 +73,27 @@ export async function fetchMe(): Promise<User | null> {
 
 export async function logout(): Promise<void> {
   await fetch("/auth/logout", { method: "POST", credentials: "include" });
+}
+
+// --- Conversations ---------------------------------------------------------
+
+// The user's conversations, newest first. Empty if they have none yet.
+export async function listConversations(): Promise<Conversation[]> {
+  const res = await fetch("/api/conversations", { credentials: "include" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.conversations as Conversation[];
+}
+
+// One conversation's messages, in order. Returns [] for a conversation that is
+// new (not yet persisted) — and the server returns 404 for one that isn't ours.
+export async function loadConversation(id: string): Promise<ChatMessage[]> {
+  const res = await fetch(`/api/conversations/${id}/messages`, {
+    credentials: "include",
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.messages as ChatMessage[]) ?? [];
 }
 
 // --- Chat streaming --------------------------------------------------------
