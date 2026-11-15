@@ -1,0 +1,43 @@
+# Local development data store.
+#
+# One Postgres, carrying everything: conversation rows now, and later the
+# vector embeddings (pgvector) + lexical index (pg_trgm / full-text) we'll
+# search over. Keeping it in a single store means you can poke at all of it
+# from one psql shell or the Adminer UI.
+#
+#   make db-up      start postgres + adminer
+#   make db-apply   apply db/schema.sql
+#   make db-psql    open a psql shell inside the container
+#   make db-reset   wipe the volume and re-apply the schema
+#
+# Adminer (web UI for poking at tables) → http://localhost:8081
+#   System: PostgreSQL  Server: db  User: advisor  Password: advisor  DB: advisor
+
+services:
+  db:
+    # pgvector image = stock Postgres 17 + the `vector` extension prebuilt.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: advisor
+      POSTGRES_PASSWORD: advisor
+      POSTGRES_DB: advisor
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U advisor -d advisor"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  adminer:
+    image: adminer:4
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

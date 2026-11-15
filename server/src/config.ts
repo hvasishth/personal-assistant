@@ -2,6 +2,8 @@
 // Everything that reads process.env goes through here, so the rest of the
 // codebase works with a validated Config object instead of raw strings.
 
+import { isLogLevel, LOG_LEVELS, type LogLevel } from "./logger";
+
 export type ProviderName = "fake" | "anthropic";
 
 export interface Config {
@@ -10,12 +12,22 @@ export interface Config {
   anthropicApiKey: string | undefined;
   dataDir: string;
   port: number;
+  databaseUrl: string;
+  logLevel: LogLevel;
 }
 
 function parseProvider(raw: string | undefined): ProviderName {
   if (raw === "fake" || raw === "anthropic") return raw;
   throw new Error(
     `ADVISOR_PROVIDER must be "fake" or "anthropic", got: ${raw ?? "(unset)"}`,
+  );
+}
+
+function parseLogLevel(raw: string | undefined): LogLevel {
+  if (raw === undefined || raw === "") return "info";
+  if (isLogLevel(raw)) return raw;
+  throw new Error(
+    `ADVISOR_LOG_LEVEL must be one of ${LOG_LEVELS.join("|")}, got: ${raw}`,
   );
 }
 
@@ -35,5 +47,9 @@ export function loadConfig(): Config {
     anthropicApiKey,
     dataDir: process.env.ADVISOR_DATA_DIR ?? "./data",
     port: Number(process.env.PORT ?? "8787"),
+    databaseUrl:
+      process.env.DATABASE_URL ??
+      "postgres://advisor:advisor@localhost:5432/advisor",
+    logLevel: parseLogLevel(process.env.ADVISOR_LOG_LEVEL),
   };
 }

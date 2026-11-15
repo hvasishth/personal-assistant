@@ -1,13 +1,25 @@
 import { loadConfig } from "./config";
+import { createApp } from "./app";
+import { log, setLogLevel } from "./logger";
 
-// Step 0: prove the TypeScript toolchain runs and config loading works.
-// There is no HTTP server yet — that arrives in Step 1 (Express).
+// Step 1: load config, build the Express app, and start listening.
 const config = loadConfig();
+setLogLevel(config.logLevel);
+const app = createApp(config);
 
-console.log("personal-assistant server — environment check");
-console.log("  provider :", config.provider);
-console.log("  model    :", config.model);
-console.log("  dataDir  :", config.dataDir);
-console.log("  port     :", config.port);
-console.log("  hasKey   :", config.anthropicApiKey ? "yes" : "no");
-console.log("\n✓ TS toolchain is working. Next step: Express server.");
+const server = app.listen(config.port, () => {
+  log.info(
+    `personal-assistant server listening on http://localhost:${config.port}`,
+  );
+  log.info(
+    `  provider=${config.provider} model=${config.model} logLevel=${config.logLevel}`,
+  );
+});
+
+// Close the port cleanly on Ctrl+C / termination so `tsx watch` restarts and
+// repeated runs don't leave the port stuck in use.
+function shutdown(): void {
+  server.close(() => process.exit(0));
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
