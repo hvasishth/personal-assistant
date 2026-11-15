@@ -90,11 +90,13 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    // Replay: if this exact assistant turn was already produced and stored
-    // (a true duplicate request), stream the saved text back instead of
-    // spending another LLM call.
+    // Replay: if this exact assistant turn was already produced AND finished
+    // cleanly (a true duplicate request), stream the saved text back instead of
+    // spending another LLM call. An 'incomplete' turn (a reply whose stream
+    // dropped last time) is NOT replayed — we fall through and regenerate it,
+    // so the user never gets a truncated answer served back as final.
     const existingAssistant = await findMessageById(pool, assistantMessageId);
-    if (existingAssistant && existingAssistant.content) {
+    if (existingAssistant && existingAssistant.status === "complete") {
       log.debug("chat replay:", assistantMessageId);
       send("token", { text: existingAssistant.content });
       send("done", { usage: null, replayed: true });
@@ -148,16 +150,20 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
       res.end();
     }
 
-    // Persist the assistant turn once it finished cleanly. Upsert on the id so
-    // even a racing duplicate can't create a second row. We skip this on an
-    // aborted/errored stream — the user turn is already saved, so a retry picks
-    // up from there.
-    if (completed && full) {
+    // Persist whatever we actually streamed, regardless of how the stream
+    // ended, so the DB matches what the client saw — otherwise a dropped reply
+    // lingers on screen but vanishes on refresh. 'complete' only if we reached
+    // the provider's done event; a partial (aborted/errored/dropped mid-stream)
+    // is saved 'incomplete' and will be regenerated on a retry, not replayed.
+    // Nothing streamed (full === "") means the failure was before any text, so
+    // there's nothing to save — the user turn is already stored for a retry.
+    if (full) {
       try {
         await upsertAssistantMessage(pool, {
           id: assistantMessageId,
           conversationId,
           content: full,
+          status: completed ? "complete" : "incomplete",
         });
         await touchConversation(pool, conversationId);
       } catch (err) {

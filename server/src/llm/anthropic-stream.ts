@@ -60,14 +60,17 @@ export async function* parseAnthropicStream(
       if (line.startsWith('event:')) {
         const [eventLine, data] = line.split('data:');
         const event = eventLine?.split(':')?.[1]?.trim();
-        const partToSendToClient = data? JSON.parse(data)?.delta?.text : '';
+        const parsedData = data ? JSON.parse(data) : undefined;
+        const partToSendToClient = parsedData? parsedData.delta?.text : '';
         log.trace('anthropic sse block:', JSON.stringify(line));
         if (event === 'message_start') {
           continue;
         } else if (event === 'content_block_start') {
           continue;
         } else if (event === 'content_block_delta') {
-          yield { type: 'text', text: partToSendToClient };
+          if (parsedData?.delta?.type === 'text_delta') {
+            yield { type: 'text', text: partToSendToClient };
+          }
         } else if (event === 'ping') {
           continue;
         } else if (event === 'content_block_stop') {

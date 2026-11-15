@@ -13,11 +13,17 @@ import type { Pool } from "../db";
 
 export type Role = "user" | "assistant" | "system";
 
+// Whether an assistant turn finished streaming cleanly. User turns are always
+// "complete"; an assistant turn is "incomplete" if the stream dropped before
+// the provider signalled done (see routes/chat.ts).
+export type MessageStatus = "complete" | "incomplete";
+
 export interface MessageRow {
   id: string;
   conversation_id: string;
   role: Role;
   content: string;
+  status: MessageStatus;
   created_at: string;
 }
 
@@ -68,7 +74,7 @@ export async function findMessageById(
   id: string,
 ): Promise<MessageRow | undefined> {
   const { rows } = await pool.query<MessageRow>(
-    `SELECT id, conversation_id, role, content, created_at
+    `SELECT id, conversation_id, role, content, status, created_at
        FROM messages WHERE id = $1`,
     [id],
   );
@@ -82,7 +88,7 @@ export async function loadHistory(
   conversationId: string,
 ): Promise<MessageRow[]> {
   const { rows } = await pool.query<MessageRow>(
-    `SELECT id, conversation_id, role, content, created_at
+    `SELECT id, conversation_id, role, content, status, created_at
        FROM messages
       WHERE conversation_id = $1
       ORDER BY created_at ASC, id ASC`,
@@ -91,17 +97,24 @@ export async function loadHistory(
   return rows;
 }
 
-// Save the assistant's reply. Upsert on id so even a racing duplicate request
-// overwrites the same row rather than creating a second one.
+// Save the assistant's reply and its status. Upsert on id so even a racing
+// duplicate request overwrites the same row rather than creating a second one,
+// and so regenerating an 'incomplete' turn replaces it (content + status).
 export async function upsertAssistantMessage(
   pool: Pool,
-  msg: { id: string; conversationId: string; content: string },
+  msg: {
+    id: string;
+    conversationId: string;
+    content: string;
+    status: MessageStatus;
+  },
 ): Promise<void> {
   await pool.query(
-    `INSERT INTO messages (id, conversation_id, role, content)
-     VALUES ($1, $2, 'assistant', $3)
-     ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content`,
-    [msg.id, msg.conversationId, msg.content],
+    `INSERT INTO messages (id, conversation_id, role, content, status)
+     VALUES ($1, $2, 'assistant', $3, $4)
+     ON CONFLICT (id) DO UPDATE
+       SET content = EXCLUDED.content, status = EXCLUDED.status`,
+    [msg.id, msg.conversationId, msg.content, msg.status],
   );
 }
 

@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS messages (
 -- Fetch a conversation's messages in order.
 CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages (conversation_id, created_at);
 
+-- Did the assistant finish cleanly? We stream tokens to the client as they
+-- arrive but only know the turn is done when the provider says so. If the
+-- stream drops mid-way we still persist what was sent, marked 'incomplete', so
+-- the DB matches what the client already saw — and a retry regenerates rather
+-- than replaying a truncated reply. User messages are always 'complete'.
+-- Added via ALTER (the additive convention above) so it lands on the existing
+-- table with no reset.
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'complete'
+  CHECK (status IN ('complete', 'incomplete'));
+
 -- ---------------------------------------------------------------------------
 -- Coming in Step 5 (left here as a signpost, intentionally NOT enabled yet).
 -- When the time comes, uncomment these: each is idempotent, so `make db-apply`
