@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clearToken, fetchMe, getToken, type User } from "./api";
+import { fetchMe, logout, type User } from "./api";
 import { LoginForm } from "./components/LoginForm";
 import { Chat } from "./components/Chat";
 
@@ -8,21 +8,16 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // On first load, if we have a stored token, confirm it with the server.
+  // On first load, ask the server who the session cookie belongs to (if any).
   useEffect(() => {
-    if (!getToken()) {
-      setLoading(false);
-      return;
-    }
     fetchMe().then((u) => {
-      if (!u) clearToken();
       setUser(u);
       setLoading(false);
     });
   }, []);
 
-  function handleLogout() {
-    clearToken();
+  async function handleLogout() {
+    await logout();
     setUser(null);
   }
 

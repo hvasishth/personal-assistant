@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { login, setToken, signup, type User } from "../api";
+import { login, signup, type User } from "../api";
 
 type Mode = "login" | "signup";
 
@@ -18,8 +18,7 @@ export function LoginForm({ onAuthed }: { onAuthed: (user: User) => void }) {
     setBusy(true);
     try {
       const request = mode === "login" ? login : signup;
-      const { token, user } = await request(email, password);
-      setToken(token);
+      const user = await request(email, password);
       onAuthed(user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "something went wrong");
