@@ -8,6 +8,9 @@ export function Chat() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One conversation per mounted Chat for now. Minted once; the server creates
+  // the row on the first turn and enforces that it's ours thereafter.
+  const [conversationId] = useState(() => crypto.randomUUID());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as content grows.
@@ -23,22 +26,35 @@ export function Chat() {
     setError(null);
     setInput("");
 
-    const history: ChatMessage[] = [...messages, { role: "user", content }];
-    // Append an empty assistant message we fill as tokens arrive.
-    setMessages([...history, { role: "assistant", content: "" }]);
+    // Mint ids up front. The user-message id doubles as the request's
+    // idempotency key; the assistant id is captured in the closure below so
+    // tokens route to THIS bubble by id, not by position.
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+
+    // Append the user turn and an empty assistant bubble we fill as tokens arrive.
+    setMessages((current) => [
+      ...current,
+      { id: userMessageId, role: "user", content },
+      { id: assistantMessageId, role: "assistant", content: "" },
+    ]);
     setStreaming(true);
 
     try {
-      await streamChat(history, (text) => {
-        setMessages((current) => {
-          const copy = current.slice();
-          const last = copy[copy.length - 1];
-          if (last && last.role === "assistant") {
-            copy[copy.length - 1] = { ...last, content: last.content + text };
-          }
-          return copy;
-        });
-      });
+      await streamChat(
+        { conversationId, message: { id: userMessageId, content }, assistantMessageId },
+        (text) => {
+          // Find this request's bubble by id wherever it is in the list, so the
+          // append stays correct even if other turns arrive meanwhile.
+          setMessages((current) =>
+            current.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, content: m.content + text }
+                : m,
+            ),
+          );
+        },
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "chat failed");
     } finally {
@@ -52,8 +68,8 @@ export function Chat() {
         {messages.length === 0 && (
           <p className="muted empty">Ask me anything to get started.</p>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+        {messages.map((m) => (
+          <div key={m.id} className={`msg ${m.role}`}>
             <div className="bubble">
               {m.content ||
                 (m.role === "assistant" && streaming ? "…" : "")}

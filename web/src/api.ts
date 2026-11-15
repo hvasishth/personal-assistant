@@ -11,8 +11,21 @@ export interface User {
 }
 
 export interface ChatMessage {
+  // Client-minted UUID. The user message's id is the request's idempotency
+  // key; the assistant message's id is the bubble we stream tokens into and
+  // the row the server persists the reply under.
+  id: string;
   role: "user" | "assistant";
   content: string;
+}
+
+// One chat turn, as the server expects it. We send only the new user message
+// plus the ids — the server reloads prior history from the DB itself, so we no
+// longer ship the whole conversation each time.
+export interface ChatRequest {
+  conversationId: string;
+  message: { id: string; content: string };
+  assistantMessageId: string;
 }
 
 // --- Auth ------------------------------------------------------------------
@@ -56,13 +69,13 @@ export async function logout(): Promise<void> {
 
 // --- Chat streaming --------------------------------------------------------
 
-// POST the conversation and consume the Server-Sent Events reply. Because this
-// is a POST (EventSource only does GET), we read the response body stream and
-// parse the SSE framing ourselves — the mirror image of the server's parser:
-// read bytes, buffer across reads, split on the blank line between events,
-// pull out `event:` / `data:`. `onToken` fires for each text chunk.
+// POST one turn and consume the Server-Sent Events reply. Because this is a
+// POST (EventSource only does GET), we read the response body stream and parse
+// the SSE framing ourselves — the mirror image of the server's parser: read
+// bytes, buffer across reads, split on the blank line between events, pull out
+// `event:` / `data:`. `onToken` fires for each text chunk.
 export async function streamChat(
-  messages: ChatMessage[],
+  request: ChatRequest,
   onToken: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -70,7 +83,7 @@ export async function streamChat(
     method: "POST",
     headers: { "content-type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify(request),
     signal,
   });
   if (!res.ok || !res.body) {

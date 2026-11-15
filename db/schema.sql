@@ -5,6 +5,10 @@
 -- migration system. When we need to evolve the schema later we'll decide
 -- between "edit + db-reset" (fine while there's no real data) and adding a
 -- migrations tool.
+--
+-- NOTE: because every table uses CREATE TABLE IF NOT EXISTS, editing a column
+-- type here does NOT alter an already-created table. After changing a column
+-- (e.g. the id types below), run `make db-reset` to drop and recreate.
 
 -- ---------------------------------------------------------------------------
 -- Extensions. Enabled up front so the store is ready for the search work to
@@ -16,7 +20,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ---------------------------------------------------------------------------
--- Users & auth.
+-- Users & auth. Server-owned BIGINT identity: the client never names a user.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -40,9 +44,19 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
 -- Conversations & messages. This is what lets a conversation be sustained
 -- across requests: we load prior messages for a conversation and feed them
 -- back to the model.
+--
+-- Identity is CLIENT-OWNED here: the primary keys are UUIDs the browser mints
+-- and sends in the request body. That buys two things:
+--   - optimistic UI: the browser knows a message's id before the server answers
+--   - idempotency: a retried/duplicated request carries the SAME ids, so an
+--     INSERT ... ON CONFLICT DO NOTHING is a harmless no-op the second time
+--     instead of creating duplicate rows or triggering a second LLM call.
+-- The user-message id doubles as the request's idempotency key; the assistant
+-- message gets its own distinct id (never derived from the user message, so
+-- "regenerate" can produce a fresh response without colliding).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS conversations (
-  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  id         UUID        PRIMARY KEY,   -- client-supplied
   user_id    BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title      TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -51,8 +65,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS conversations_user_id_idx ON conversations (user_id);
 
 CREATE TABLE IF NOT EXISTS messages (
-  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  conversation_id BIGINT      NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  id              UUID        PRIMARY KEY,   -- client-supplied; doubles as idempotency key
+  conversation_id UUID        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   role            TEXT        NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content         TEXT        NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -39,11 +39,12 @@ export function createApp(
   // Auth (Step 4): signup / login / logout / me.
   app.use("/auth", makeAuthRouter(pool));
 
-  // The streaming chat endpoint (Step 2) — now behind auth (Step 4). A valid
-  // session token (Authorization: Bearer <token>) is required; requireAuth
-  // short-circuits with 401 otherwise, so the handler only runs when authed.
+  // The streaming chat endpoint (Step 2) — now behind auth (Step 4) and backed
+  // by the DB (Step 4): it persists each turn and reloads history. A valid
+  // session cookie is required; requireAuth short-circuits with 401 otherwise,
+  // so the handler only runs when authed (and req.userId is set).
   const requireAuth = makeRequireAuth(pool);
-  app.post("/api/chat", requireAuth, makeChatRoute(provider));
+  app.post("/api/chat", requireAuth, makeChatRoute(provider, pool));
 
   // Anything unmatched falls through to here -> 404.
   app.use((_req: Request, res: Response) => {
