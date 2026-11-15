@@ -6,9 +6,16 @@
 -- between "edit + db-reset" (fine while there's no real data) and adding a
 -- migrations tool.
 --
--- NOTE: because every table uses CREATE TABLE IF NOT EXISTS, editing a column
--- type here does NOT alter an already-created table. After changing a column
--- (e.g. the id types below), run `make db-reset` to drop and recreate.
+-- Adding a COLUMN later stays idempotent too — use:
+--   ALTER TABLE <table> ADD COLUMN IF NOT EXISTS <col> <type>;
+-- so re-running `make db-apply` picks the new column up on an existing table
+-- with no drop (CREATE INDEX IF NOT EXISTS behaves the same). See the Step 5
+-- block at the bottom for the pattern.
+--
+-- The limit: only ADDITIVE changes are idempotent this way. Changing an
+-- existing column's type or constraints (e.g. the UUID id columns below) is
+-- NOT — CREATE TABLE IF NOT EXISTS won't touch a table that already exists, so
+-- those still need `make db-reset` (or, eventually, a real migration tool).
 
 -- ---------------------------------------------------------------------------
 -- Extensions. Enabled up front so the store is ready for the search work to
@@ -75,9 +82,15 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages (conversation_id, created_at);
 
 -- ---------------------------------------------------------------------------
--- Coming in Step 5 (left here as a signpost, intentionally NOT created yet):
---   ALTER TABLE messages ADD COLUMN embedding vector(1536);       -- semantic search
---   CREATE INDEX ... ON messages USING hnsw (embedding vector_cosine_ops);
---   ALTER TABLE messages ADD COLUMN content_tsv tsvector ...;     -- lexical search
---   CREATE INDEX ... ON messages USING gin (content_tsv);
+-- Coming in Step 5 (left here as a signpost, intentionally NOT enabled yet).
+-- When the time comes, uncomment these: each is idempotent, so `make db-apply`
+-- adds them to the existing messages table without a reset.
+--   -- semantic search:
+--   ALTER TABLE messages ADD COLUMN IF NOT EXISTS embedding vector(1536);
+--   CREATE INDEX IF NOT EXISTS messages_embedding_idx
+--     ON messages USING hnsw (embedding vector_cosine_ops);
+--   -- lexical / fuzzy search:
+--   ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_tsv tsvector;
+--   CREATE INDEX IF NOT EXISTS messages_content_tsv_idx
+--     ON messages USING gin (content_tsv);
 -- ---------------------------------------------------------------------------
