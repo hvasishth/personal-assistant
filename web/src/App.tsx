@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchMe,
   logout,
   listConversations,
+  getConversation,
   type Conversation,
   type User,
 } from "./api";
@@ -19,6 +20,9 @@ export function App() {
   // The open conversation. For a fresh "New chat" this is a client-minted UUID
   // that has no row yet — the server creates it on the first message.
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Conversation ids currently being polled for an async title, so we never run
+  // two poll loops for the same one.
+  const titlePolls = useRef<Set<string>>(new Set());
 
   // On first load, ask the server who the session cookie belongs to (if any).
   useEffect(() => {
@@ -49,10 +53,40 @@ export function App() {
     setActiveId(crypto.randomUUID());
   }
 
-  // After a turn, refresh the list so a new conversation's title shows up and
-  // most-recent ordering updates. Selection is unchanged.
-  function refreshConversations() {
-    listConversations().then(setConversations);
+  // After a turn: refresh the list (ordering, and any title already set), then —
+  // since titling now runs in the background on the server — poll for the active
+  // conversation's title if it doesn't have one yet.
+  async function handleTurnComplete() {
+    const cs = await listConversations();
+    setConversations(cs);
+    const active = cs.find((c) => c.id === activeId);
+    if (active && !active.title) pollForTitle(active.id);
+  }
+
+  // Poll GET /api/conversations/:id a few times until the title appears, then
+  // patch it into the list. Gives up quietly after a few tries (it'll still
+  // show on the next load). The per-id guard prevents overlapping loops.
+  function pollForTitle(id: string) {
+    if (titlePolls.current.has(id)) return;
+    titlePolls.current.add(id);
+    let tries = 0;
+    const tick = async () => {
+      tries += 1;
+      const conv = await getConversation(id);
+      if (conv?.title) {
+        setConversations((cur) =>
+          cur.map((c) => (c.id === id ? { ...c, title: conv.title } : c)),
+        );
+        titlePolls.current.delete(id);
+        return;
+      }
+      if (tries >= 6) {
+        titlePolls.current.delete(id);
+        return;
+      }
+      setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 800);
   }
 
   if (loading) {
@@ -85,7 +119,7 @@ export function App() {
               <Chat
                 key={activeId}
                 conversationId={activeId}
-                onTurnComplete={refreshConversations}
+                onTurnComplete={handleTurnComplete}
               />
             )}
           </>

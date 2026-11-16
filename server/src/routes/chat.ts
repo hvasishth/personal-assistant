@@ -9,6 +9,7 @@ import {
   upsertAssistantMessage,
   touchConversation,
 } from "../conversations/repo";
+import { autoTitleConversation } from "../conversations/title";
 import { log } from "../logger";
 
 // POST /api/chat
@@ -61,12 +62,7 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
 
     // Ownership: create the conversation if it's new, else confirm it's this
     // user's before writing anything into it.
-    const ownerId = await getOrCreateConversation(
-      pool,
-      conversationId,
-      userId,
-      content,
-    );
+    const ownerId = await getOrCreateConversation(pool, conversationId, userId);
     if (ownerId !== userId) {
       res.status(403).json({ error: "not your conversation" });
       return;
@@ -100,6 +96,10 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
       log.debug("chat replay:", assistantMessageId);
       send("token", { text: existingAssistant.content });
       send("done", { usage: null, replayed: true });
+      // A replayed turn still ensures the conversation gets titled — covers the
+      // case where the original turn's titling was missed (it failed, or the
+      // first attempt dropped before it ran). No-ops if already titled.
+      void autoTitleConversation(pool, provider, conversationId, content);
       res.end();
       return;
     }
@@ -147,28 +147,39 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
         });
       }
     } finally {
-      res.end();
-    }
+      // Persist whatever we streamed before closing, then kick off auto-titling
+      // in the background (not awaited) so res.end() isn't held up by it.
 
-    // Persist whatever we actually streamed, regardless of how the stream
-    // ended, so the DB matches what the client saw — otherwise a dropped reply
-    // lingers on screen but vanishes on refresh. 'complete' only if we reached
-    // the provider's done event; a partial (aborted/errored/dropped mid-stream)
-    // is saved 'incomplete' and will be regenerated on a retry, not replayed.
-    // Nothing streamed (full === "") means the failure was before any text, so
-    // there's nothing to save — the user turn is already stored for a retry.
-    if (full) {
-      try {
-        await upsertAssistantMessage(pool, {
-          id: assistantMessageId,
-          conversationId,
-          content: full,
-          status: completed ? "complete" : "incomplete",
-        });
-        await touchConversation(pool, conversationId);
-      } catch (err) {
-        log.error("failed to persist assistant message:", err);
+      // Persist regardless of how the stream ended, so the DB matches what the
+      // client saw — otherwise a dropped reply lingers on screen but vanishes
+      // on refresh. 'complete' only if we reached the provider's done event; a
+      // partial (aborted/errored/dropped mid-stream) is saved 'incomplete' and
+      // regenerated on retry, not replayed. Nothing streamed (full === "")
+      // means the failure was before any text — the user turn is already stored.
+      if (full) {
+        try {
+          await upsertAssistantMessage(pool, {
+            id: assistantMessageId,
+            conversationId,
+            content: full,
+            status: completed ? "complete" : "incomplete",
+          });
+          await touchConversation(pool, conversationId);
+        } catch (err) {
+          log.error("failed to persist assistant message:", err);
+        }
       }
+
+      // Auto-title on a clean turn, fire-and-forget: generation runs in the
+      // background (and no-ops if the conversation is already titled), so it
+      // never holds the response open. The client learns the title by polling
+      // GET /api/conversations/:id. autoTitleConversation owns its errors, so
+      // this never rejects.
+      if (completed && full) {
+        void autoTitleConversation(pool, provider, conversationId, content);
+      }
+
+      res.end();
     }
   };
 }

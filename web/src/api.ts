@@ -96,6 +96,18 @@ export async function loadConversation(id: string): Promise<ChatMessage[]> {
   return (data.messages as ChatMessage[]) ?? [];
 }
 
+// One conversation's metadata (id, title, …). null if missing / not ours. The
+// title is generated asynchronously after the first turn, so the client polls
+// this until `title` is set rather than relying on the chat stream to carry it.
+export async function getConversation(id: string): Promise<Conversation | null> {
+  const res = await fetch(`/api/conversations/${id}`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.conversation as Conversation) ?? null;
+}
+
 // --- Chat streaming --------------------------------------------------------
 
 // POST one turn and consume the Server-Sent Events reply. Because this is a

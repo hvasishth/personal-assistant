@@ -43,13 +43,14 @@ export async function getOrCreateConversation(
   pool: Pool,
   id: string,
   userId: string,
-  title: string,
 ): Promise<string> {
+  // title is left NULL on creation; it's filled in by auto-titling after the
+  // first clean turn (see routes/chat.ts + conversations/title.ts).
   await pool.query(
-    `INSERT INTO conversations (id, user_id, title)
-     VALUES ($1, $2, $3)
+    `INSERT INTO conversations (id, user_id)
+     VALUES ($1, $2)
      ON CONFLICT (id) DO NOTHING`,
-    [id, userId, title.slice(0, 80)],
+    [id, userId],
   );
   const { rows } = await pool.query<{ user_id: string }>(
     `SELECT user_id FROM conversations WHERE id = $1`,
@@ -86,6 +87,20 @@ export async function findConversationOwner(
     [id],
   );
   return rows[0]?.user_id;
+}
+
+// One conversation's full row (incl. owner), for the metadata endpoint that the
+// client polls for the async-generated title. Undefined if it doesn't exist.
+export async function findConversation(
+  pool: Pool,
+  id: string,
+): Promise<(ConversationRow & { user_id: string }) | undefined> {
+  const { rows } = await pool.query<ConversationRow & { user_id: string }>(
+    `SELECT id, user_id, title, created_at, updated_at
+       FROM conversations WHERE id = $1`,
+    [id],
+  );
+  return rows[0];
 }
 
 // Insert the user's turn. Returns true if newly inserted, false if a row with
@@ -158,4 +173,30 @@ export async function touchConversation(pool: Pool, id: string): Promise<void> {
   await pool.query(`UPDATE conversations SET updated_at = now() WHERE id = $1`, [
     id,
   ]);
+}
+
+// Current title (null if untitled, undefined if the conversation is missing).
+// Used to decide whether auto-titling still needs to run.
+export async function getConversationTitle(
+  pool: Pool,
+  id: string,
+): Promise<string | null | undefined> {
+  const { rows } = await pool.query<{ title: string | null }>(
+    `SELECT title FROM conversations WHERE id = $1`,
+    [id],
+  );
+  return rows[0]?.title;
+}
+
+// Set the title only if it's still NULL, so a race (or a retry) can't clobber a
+// title that's already there.
+export async function setConversationTitleIfNull(
+  pool: Pool,
+  id: string,
+  title: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`,
+    [id, title],
+  );
 }
