@@ -5,11 +5,26 @@
 DB_SVC := db
 PSQL   := docker compose exec $(DB_SVC) psql -U advisor -d advisor
 
-.PHONY: help db-up db-down db-wait db-apply db-reset db-psql db-logs db-status
+.PHONY: help dev dev-server dev-web db-up db-down db-wait db-apply db-reset db-psql db-logs db-status
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+
+dev: db-up db-wait ## Run backend (debugger) + web dev servers together; Ctrl+C stops both
+	@echo "api    -> http://localhost:8787  (node debugger on 127.0.0.1:9229)"
+	@echo "web    -> http://localhost:5173  (proxies /api + /auth to 8787)"
+	@echo "attach -> VS Code 'Attach to Node' or chrome://inspect"
+	@trap 'kill 0' INT TERM EXIT; \
+		(cd server && npx tsx watch --inspect --env-file-if-exists=../.env src/index.ts) & \
+		(cd web && npm run dev) & \
+		wait
+
+dev-server: db-up db-wait ## Run only the backend in debug mode (--inspect)
+	cd server && npx tsx watch --inspect --env-file-if-exists=../.env src/index.ts
+
+dev-web: ## Run only the web dev server
+	cd web && npm run dev
 
 db-up: ## Start postgres + adminer (detached)
 	docker compose up -d
