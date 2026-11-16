@@ -21,11 +21,19 @@ export function createAnthropicProvider(
       messages: ChatMessage[],
       opts: StreamOptions = {},
     ): AsyncIterable<StreamEvent> {
+      // Anthropic takes the system prompt as a top-level `system` param, not a
+      // message, so lift any system-role messages out of the array.
+      const system = messages
+        .filter((m) => m.role === "system")
+        .map((m) => m.content)
+        .join("\n\n");
+      const turns = messages.filter((m) => m.role !== "system");
       const body = JSON.stringify({
         model: opts.model ?? defaultModel,
         max_tokens: opts.maxTokens ?? 1024,
         stream: true,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        ...(system ? { system } : {}),
+        messages: turns.map((m) => ({ role: m.role, content: m.content })),
       });
       const response = await fetch(API_URL, {
         method: "POST",

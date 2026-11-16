@@ -5,7 +5,7 @@ import { insertFact, searchSimilarFacts } from "./repo";
 import { log } from "../logger";
 
 // The ingestion half of the memory pipeline (boilerplate; the retrieval half is
-// your piece — see memory/retrieval.ts). Given a user message, it:
+// in memory/retrieval.ts). Given a user message, it:
 //   1. asks a cheap model to extract durable facts worth remembering,
 //   2. embeds each fact,
 //   3. reconciles against existing facts (skip near-duplicates),

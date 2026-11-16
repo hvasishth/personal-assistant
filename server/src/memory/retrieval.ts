@@ -2,9 +2,16 @@ import type { ChatMessage } from "../llm/types";
 import type { EmbeddingProvider } from "../embeddings/types";
 import type { Pool } from "../db";
 import type { MessageRow } from "../conversations/repo";
-// Pipes ready for you (the retrieval repo). searchFactsByText is the lexical
-// alternative if you want hybrid search.
-import { searchSimilarFacts, searchFactsByText } from "./repo";
+import { searchSimilarFacts, searchFactsByText, type FactRow } from "./repo";
+
+// Retrieval + prompt assembly (Step 5). Turns the stored history + the user's
+// new message into the ChatMessage[] handed to the model.
+//
+// Design: NO LLM calls on this path — retrieval runs before the model can start
+// streaming, so every call here is pure time-to-first-token. We embed the query
+// once, run vector + lexical search concurrently, and fuse them. We lean on a
+// real embedding provider (Voyage) to bridge synonyms (e.g. "color" -> "teal");
+// the fake provider is lexical-only, so semantic recall is weak under it.
 
 export interface RetrievalDeps {
   pool: Pool;
@@ -18,39 +25,66 @@ export interface RetrievalArgs {
   userMessage: string;
 }
 
-// ============================================================================
-// YOUR PIECE (Step 5): retrieval + prompt assembly.
-//
-// Turn the stored conversation history + the user's new message into the exact
-// ChatMessage[] handed to the model. Right now this is the SIMPLE version — it
-// returns the conversation history verbatim, which is what the app did before
-// Step 5, so everything keeps working while this is unimplemented.
-//
-// Your job: add RETRIEVAL and compose a better prompt. The pipes are ready:
-//   const [qvec] = await deps.embeddings.embed([args.userMessage]);
-//   const facts  = await searchSimilarFacts(deps.pool, args.userId, qvec, k);
-//   // (or searchFactsByText(deps.pool, args.userId, args.userMessage, k) for lexical)
-//
-// A typical shape:
-//   1. embed args.userMessage -> query vector
-//   2. searchSimilarFacts(...) -> the top-k relevant facts for this user
-//   3. build a leading context/system message from those facts' .content
-//   4. append the recent conversation history (toChatMessages(args.history))
-//   5. return [context, ...history]   — mind token budget, ordering, how much
-//      history vs. retrieved memory to include
-//
-// Everything downstream (streaming, persistence, titling, the background fact
-// extraction that fills the store) already works against whatever you return.
-// ============================================================================
+const PER_SOURCE = 8; // facts pulled from each search
+const MAX_FACTS = 6; // facts that survive fusion into the prompt
+const RRF_K = 60; // Reciprocal Rank Fusion dampening constant (standard default)
+
 export async function buildPromptMessages(
   deps: RetrievalDeps,
   args: RetrievalArgs,
 ): Promise<ChatMessage[]> {
-  // --- SIMPLE default: no retrieval yet. Replace with the steps above. -------
-  void deps; // (unused until you implement retrieval)
-  void searchSimilarFacts;
-  void searchFactsByText;
-  return toChatMessages(args.history);
+  const facts = await retrieveFacts(deps, args.userId, args.userMessage);
+  return [
+    { role: "system", content: buildSystemPrompt(facts) },
+    ...toChatMessages(args.history),
+  ];
+}
+
+// Hybrid retrieval: one embedding call, vector + lexical search in parallel,
+// fused. The vector search needs the embedding, so it follows the Promise.all.
+async function retrieveFacts(
+  deps: RetrievalDeps,
+  userId: string,
+  query: string,
+): Promise<string[]> {
+  const [embedded, lexical] = await Promise.all([
+    deps.embeddings.embed([query]),
+    searchFactsByText(deps.pool, userId, query, PER_SOURCE),
+  ]);
+  const qvec = embedded[0];
+  const semantic = qvec
+    ? await searchSimilarFacts(deps.pool, userId, qvec, PER_SOURCE)
+    : [];
+  return fuse([semantic, lexical], MAX_FACTS);
+}
+
+// Reciprocal Rank Fusion over several ranked lists: each list votes 1/(k + rank)
+// for a fact, and a fact appearing in several lists accumulates. Dedupes by id
+// and is scale-agnostic, so cosine distance and ts_rank combine without having
+// to normalize their very different score ranges. Returns the top-n contents.
+function fuse(lists: FactRow[][], n: number): string[] {
+  const score = new Map<string, number>();
+  const content = new Map<string, string>();
+  for (const list of lists) {
+    list.forEach((f, rank) => {
+      score.set(f.id, (score.get(f.id) ?? 0) + 1 / (RRF_K + rank));
+      content.set(f.id, f.content);
+    });
+  }
+  return [...score.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([id]) => content.get(id)!);
+}
+
+function buildSystemPrompt(facts: string[]): string {
+  const base =
+    "You are a helpful personal assistant. Answer the user's latest message " +
+    "using the conversation so far and the known facts about the user below. " +
+    "If the facts don't cover something, answer normally — never invent facts.";
+  if (facts.length === 0) return base;
+  const block = facts.map((f) => `- ${f}`).join("\n");
+  return `${base}\n\nKnown facts about the user:\n${block}`;
 }
 
 // History rows -> the model's message shape. We only ever store 'user' and
