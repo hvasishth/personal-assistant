@@ -84,7 +84,13 @@ function parseGolden(raw: string): GoldenQuestion[] {
     const expected = Array.isArray(o.expectedTurnIds)
       ? o.expectedTurnIds.filter((x): x is string => typeof x === "string")
       : undefined;
-    out.push({ question: o.question, expectedTurnIds: expected });
+    // An optional pinned filter (fixed ParsedQuery) for a deterministic
+    // retrieval ablation; passed through as-is when present.
+    const filter =
+      typeof o.filter === "object" && o.filter !== null
+        ? (o.filter as GoldenQuestion["filter"])
+        : undefined;
+    out.push({ question: o.question, expectedTurnIds: expected, filter });
   }
   return out;
 }
