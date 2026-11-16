@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to golden.json and fill expectedTurnIds after ingest. Each question is paired with the turn id(s) that actually contain the answer (printed by `recall ask` under '--- retrieved turns ---', or found in Postico). recall@5 counts a question as a hit if ANY expected id is in the top 5. Leave expectedTurnIds off a question to time it without scoring it. The spec's mix: ~6 time-bounded, ~4 exact-token, ~4 paraphrase, ~3 person, ~3 no-answer.",
+  "questions": [
+    { "question": "What did we decide about the Q3 budget last week?", "expectedTurnIds": [] },
+    { "question": "When did we agree to move the launch date?", "expectedTurnIds": [] },
+    { "question": "What was the codename for the migration project?", "expectedTurnIds": [] },
+    { "question": "What port does the dev server run on?", "expectedTurnIds": [] },
+    { "question": "How did we plan to handle duplicate ingestion?", "expectedTurnIds": [] },
+    { "question": "What was the reasoning behind choosing reciprocal rank fusion?", "expectedTurnIds": [] },
+    { "question": "What did Luke say about the hiring level?", "expectedTurnIds": [] },
+    { "question": "Who owns the embeddings work?", "expectedTurnIds": [] },
+    { "question": "What did we conclude about quantum teleportation pricing?", "expectedTurnIds": [] }
+  ]
+}

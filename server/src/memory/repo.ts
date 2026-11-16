@@ -25,20 +25,71 @@ export async function insertFact(
   fact: {
     userId: string;
     content: string;
+    subject?: string | null;
     embedding: number[];
+    embeddingModel?: string | null;
     sourceMessageId?: string;
+    validFrom?: string | null;
   },
-): Promise<void> {
-  await pool.query(
-    `INSERT INTO facts (user_id, content, embedding, source_message_id)
-     VALUES ($1, $2, $3::vector, $4)`,
+): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO facts
+       (user_id, content, subject, embedding, embedding_model, source_message_id, valid_from)
+     VALUES ($1, $2, $3, $4::vector, $5, $6, COALESCE($7, now()))
+     RETURNING id`,
     [
       fact.userId,
       fact.content,
+      fact.subject ?? null,
       toVectorLiteral(fact.embedding),
+      fact.embeddingModel ?? null,
       fact.sourceMessageId ?? null,
+      fact.validFrom ?? null,
     ],
   );
+  const row = rows[0];
+  if (!row) throw new Error("insertFact returned no id");
+  return row.id;
+}
+
+export interface LiveFactMatch extends FactMatch {
+  subject: string | null;
+}
+
+// Nearest LIVE facts (not superseded) to an embedding, with their subject — the
+// input the supersession step reasons over (duplicate detection + finding the
+// prior fact a new one replaces).
+export async function searchSimilarLiveFacts(
+  pool: Pool,
+  userId: string,
+  embedding: number[],
+  limit: number,
+): Promise<LiveFactMatch[]> {
+  const { rows } = await pool.query<LiveFactMatch>(
+    `SELECT id, user_id, content, subject, created_at,
+            embedding <=> $2::vector AS distance
+       FROM facts
+      WHERE user_id = $1
+        AND superseded_by IS NULL
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> $2::vector
+      LIMIT $3`,
+    [userId, toVectorLiteral(embedding), limit],
+  );
+  return rows;
+}
+
+// Mark an old fact as replaced by a newer one. The row is kept for history; it
+// just stops appearing in live retrieval.
+export async function supersedeFact(
+  pool: Pool,
+  oldId: string,
+  newId: string,
+): Promise<void> {
+  await pool.query(`UPDATE facts SET superseded_by = $2 WHERE id = $1`, [
+    oldId,
+    newId,
+  ]);
 }
 
 // Semantic search: the nearest facts to a query embedding, for one user, by
