@@ -93,15 +93,31 @@ ALTER TABLE messages
   CHECK (status IN ('complete', 'incomplete'));
 
 -- ---------------------------------------------------------------------------
--- Coming in Step 5 (left here as a signpost, intentionally NOT enabled yet).
--- When the time comes, uncomment these: each is idempotent, so `make db-apply`
--- adds them to the existing messages table without a reset.
---   -- semantic search:
---   ALTER TABLE messages ADD COLUMN IF NOT EXISTS embedding vector(1536);
---   CREATE INDEX IF NOT EXISTS messages_embedding_idx
---     ON messages USING hnsw (embedding vector_cosine_ops);
---   -- lexical / fuzzy search:
---   ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_tsv tsvector;
---   CREATE INDEX IF NOT EXISTS messages_content_tsv_idx
---     ON messages USING gin (content_tsv);
+-- Step 5 — memory / RAG. `facts` are short, durable memories the assistant
+-- extracts from a user's messages (in the background), embeds, and later
+-- retrieves to ground its answers. Scoped per user — this is cross-conversation
+-- memory about the user, not per-conversation history.
+--   embedding    -> semantic (vector) search, pgvector + HNSW cosine index
+--   content_tsv  -> lexical search, a generated tsvector + GIN index
+--
+-- IMPORTANT: the embedding dimension MUST match the embedding provider (see
+-- server/src/embeddings). 1024 = Voyage voyage-3; the fake provider matches it.
+-- Switching to a provider with a different dimension (e.g. OpenAI's 1536) means
+-- re-creating this column and re-embedding, so it is NOT an additive change.
 -- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS facts (
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id           BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content           TEXT        NOT NULL,
+  embedding         vector(1024),
+  content_tsv       tsvector    GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+  source_message_id UUID        REFERENCES messages(id) ON DELETE SET NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS facts_user_id_idx ON facts (user_id);
+-- Semantic search: cosine-distance HNSW index over the embeddings.
+CREATE INDEX IF NOT EXISTS facts_embedding_idx
+  ON facts USING hnsw (embedding vector_cosine_ops);
+-- Lexical search: GIN over the generated tsvector.
+CREATE INDEX IF NOT EXISTS facts_content_tsv_idx
+  ON facts USING gin (content_tsv);

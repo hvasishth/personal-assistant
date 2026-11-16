@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
-import type { ChatMessage, LLMProvider } from "../llm/types";
+import type { LLMProvider } from "../llm/types";
 import type { Pool } from "../db";
+import type { EmbeddingProvider } from "../embeddings/types";
 import {
   getOrCreateConversation,
   insertUserMessage,
@@ -10,6 +11,8 @@ import {
   touchConversation,
 } from "../conversations/repo";
 import { autoTitleConversation } from "../conversations/title";
+import { extractAndStoreFacts } from "../memory/extract";
+import { buildPromptMessages } from "../memory/retrieval";
 import { log } from "../logger";
 
 // POST /api/chat
@@ -32,7 +35,11 @@ interface ChatRequestBody {
   assistantMessageId?: unknown;
 }
 
-export function makeChatRoute(provider: LLMProvider, pool: Pool) {
+export function makeChatRoute(
+  provider: LLMProvider,
+  pool: Pool,
+  embeddings: EmbeddingProvider,
+) {
   return async function chat(req: Request, res: Response): Promise<void> {
     const body = (req.body ?? {}) as ChatRequestBody;
     const conversationId =
@@ -72,6 +79,14 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
     // request inserts nothing the second time.
     await insertUserMessage(pool, { id: messageId, conversationId, content });
 
+    // Background memory extraction (Step 5): distill durable facts from the
+    // user's message and store them for later retrieval. Fire-and-forget — it
+    // owns its errors and must never delay or break the chat response.
+    void extractAndStoreFacts(
+      { pool, provider, embeddings },
+      { userId, content, sourceMessageId: messageId },
+    );
+
     // SSE handshake. These headers turn the response into an event stream the
     // browser keeps open.
     res.writeHead(200, {
@@ -109,17 +124,13 @@ export function makeChatRoute(provider: LLMProvider, pool: Pool) {
     const ac = new AbortController();
     res.on("close", () => ac.abort());
 
-    // --- prompt assembly (SIMPLE version) -----------------------------------
-    // Load the whole conversation (now including the just-saved user turn) and
-    // hand it to the model verbatim. This is deliberately naive: the richer
-    // "retrieve the relevant context + assemble the prompt" logic is Step 5 and
-    // is yours to write — swap this block out there.
+    // Retrieval + prompt assembly (Step 5) — buildPromptMessages is YOUR piece.
+    // Today it returns the history verbatim; it's where retrieval plugs in.
     const history = await loadHistory(pool, conversationId);
-    const promptMessages: ChatMessage[] = history.map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
-    }));
-    // ------------------------------------------------------------------------
+    const promptMessages = await buildPromptMessages(
+      { pool, embeddings },
+      { userId, conversationId, history, userMessage: content },
+    );
 
     log.debug("chat request:", promptMessages.length, "message(s) in context");
 

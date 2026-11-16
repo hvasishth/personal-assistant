@@ -10,6 +10,8 @@ import { createProvider } from "./llm";
 import { makeChatRoute } from "./routes/chat";
 import { makeConversationsRouter } from "./routes/conversations";
 import { createPool, type Pool } from "./db";
+import { createEmbeddingProvider } from "./embeddings";
+import type { EmbeddingProvider } from "./embeddings/types";
 import { makeAuthRouter } from "./auth/routes";
 import { makeRequireAuth } from "./auth/middleware";
 import { log } from "./logger";
@@ -25,6 +27,7 @@ export function createApp(
   config: Config,
   provider: LLMProvider = createProvider(config),
   pool: Pool = createPool(config.databaseUrl),
+  embeddings: EmbeddingProvider = createEmbeddingProvider(config),
 ): Express {
   const app = express();
 
@@ -45,7 +48,7 @@ export function createApp(
   // session cookie is required; requireAuth short-circuits with 401 otherwise,
   // so the handler only runs when authed (and req.userId is set).
   const requireAuth = makeRequireAuth(pool);
-  app.post("/api/chat", requireAuth, makeChatRoute(provider, pool));
+  app.post("/api/chat", requireAuth, makeChatRoute(provider, pool, embeddings));
 
   // Conversation list + history for the sidebar (Step 4), also behind auth.
   app.use("/api/conversations", requireAuth, makeConversationsRouter(pool));
