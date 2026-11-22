@@ -20,7 +20,7 @@ node_modules/.bin/pm2: package-lock.json
 	@touch $@
 
 up: node_modules/.bin/pm2 db-up db-wait db-apply ## One-shot: apply schema, start api+web under pm2, stream all logs; Ctrl+C stops everything
-	@$(PM2) delete all >/dev/null 2>&1 || true
+	@$(PM2) delete all >/dev/null 2>&1 || true; rm -f .pm2/logs/*.log
 	@trap '$(PM2) kill >/dev/null 2>&1; echo; echo "stopped api + web"; exit 0' INT TERM; \
 		$(PM2) start ecosystem.config.cjs >/dev/null && \
 		echo "api -> http://localhost:8787 (debugger 127.0.0.1:9229)  |  web -> http://localhost:5173" && \

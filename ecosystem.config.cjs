@@ -8,6 +8,7 @@ module.exports = {
       script: "npx",
       args: "tsx watch --inspect --env-file-if-exists=../.env src/index.ts",
       autorestart: false,
+      interpreter: "none", // npx/npm are shell shims (esp. under mise), not JS
     },
     {
       name: "web",
@@ -15,6 +16,7 @@ module.exports = {
       script: "npm",
       args: "run dev",
       autorestart: false,
+      interpreter: "none", // npx/npm are shell shims (esp. under mise), not JS
     },
   ],
 };
