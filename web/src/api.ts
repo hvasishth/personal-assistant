@@ -1,5 +1,9 @@
 // The browser's view of the server. Every request goes through the Vite dev
 // proxy to the Express server, so these are same-origin paths.
+//
+// Auth is cookie-based: the server sets an httpOnly session cookie on
+// login/signup, and the browser sends it automatically. JS never sees the
+// token — we just pass `credentials: "include"` so the cookie rides along.
 
 export interface User {
   id: string;
@@ -7,85 +11,120 @@ export interface User {
 }
 
 export interface ChatMessage {
+  // Client-minted UUID. The user message's id is the request's idempotency
+  // key; the assistant message's id is the bubble we stream tokens into and
+  // the row the server persists the reply under.
+  id: string;
   role: "user" | "assistant";
   content: string;
 }
 
-// --- Token storage ---------------------------------------------------------
-// We keep the session token in localStorage so a refresh stays logged in.
-
-const TOKEN_KEY = "advisor.token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+// One chat turn, as the server expects it. We send only the new user message
+// plus the ids — the server reloads prior history from the DB itself, so we no
+// longer ship the whole conversation each time.
+export interface ChatRequest {
+  conversationId: string;
+  message: { id: string; content: string };
+  assistantMessageId: string;
 }
 
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+// A conversation as shown in the sidebar.
+export interface Conversation {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // --- Auth ------------------------------------------------------------------
-
-interface AuthResponse {
-  token: string;
-  user: User;
-}
 
 async function postAuth(
   path: string,
   email: string,
   password: string,
-): Promise<AuthResponse> {
+): Promise<User> {
   const res = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error ?? `request failed (${res.status})`);
   }
-  return data as AuthResponse;
+  return data.user as User;
 }
 
-export function signup(email: string, password: string): Promise<AuthResponse> {
+export function signup(email: string, password: string): Promise<User> {
   return postAuth("/auth/signup", email, password);
 }
-export function login(email: string, password: string): Promise<AuthResponse> {
+export function login(email: string, password: string): Promise<User> {
   return postAuth("/auth/login", email, password);
 }
 
-// Restore the session on page load: ask the server who the stored token is for.
+// Who is the current session for? null if the cookie is missing/expired.
 export async function fetchMe(): Promise<User | null> {
-  const res = await fetch("/auth/me", { headers: authHeaders() });
+  const res = await fetch("/auth/me", { credentials: "include" });
   if (!res.ok) return null;
   const data = await res.json();
   return data.user as User;
 }
 
+export async function logout(): Promise<void> {
+  await fetch("/auth/logout", { method: "POST", credentials: "include" });
+}
+
+// --- Conversations ---------------------------------------------------------
+
+// The user's conversations, newest first. Empty if they have none yet.
+export async function listConversations(): Promise<Conversation[]> {
+  const res = await fetch("/api/conversations", { credentials: "include" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.conversations as Conversation[];
+}
+
+// One conversation's messages, in order. Returns [] for a conversation that is
+// new (not yet persisted) — and the server returns 404 for one that isn't ours.
+export async function loadConversation(id: string): Promise<ChatMessage[]> {
+  const res = await fetch(`/api/conversations/${id}/messages`, {
+    credentials: "include",
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.messages as ChatMessage[]) ?? [];
+}
+
+// One conversation's metadata (id, title, …). null if missing / not ours. The
+// title is generated asynchronously after the first turn, so the client polls
+// this until `title` is set rather than relying on the chat stream to carry it.
+export async function getConversation(id: string): Promise<Conversation | null> {
+  const res = await fetch(`/api/conversations/${id}`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.conversation as Conversation) ?? null;
+}
+
 // --- Chat streaming --------------------------------------------------------
 
-// POST the conversation and consume the Server-Sent Events reply. Because this
-// is a POST (EventSource only does GET), we read the response body stream and
-// parse the SSE framing ourselves — the mirror image of the server's parser:
-// read bytes, buffer across reads, split on the blank line between events,
-// pull out `event:` / `data:`. `onToken` fires for each text chunk.
+// POST one turn and consume the Server-Sent Events reply. Because this is a
+// POST (EventSource only does GET), we read the response body stream and parse
+// the SSE framing ourselves — the mirror image of the server's parser: read
+// bytes, buffer across reads, split on the blank line between events, pull out
+// `event:` / `data:`. `onToken` fires for each text chunk.
 export async function streamChat(
-  messages: ChatMessage[],
+  request: ChatRequest,
   onToken: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ messages }),
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(request),
     signal,
   });
   if (!res.ok || !res.body) {

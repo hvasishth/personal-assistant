@@ -7,7 +7,7 @@
 
 /** A single message in the conversation. */
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant"| "system";
   content: string;
 }
 

@@ -68,6 +68,56 @@ main {
   display: flex;
 }
 
+/* Sidebar (conversation list) */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+  overflow-y: auto;
+}
+.new-chat {
+  width: 100%;
+}
+.conversations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.empty-list {
+  font-size: 13px;
+  padding: 4px 8px;
+}
+button.conversation {
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-weight: 450;
+  padding: 9px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+button.conversation:hover {
+  background: var(--assistant-bubble);
+}
+button.conversation.active {
+  background: var(--assistant-bubble);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .sidebar {
+    width: 140px;
+  }
+}
+
 .center {
   margin: auto;
 }

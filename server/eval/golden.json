@@ -1,0 +1,89 @@
+{
+  "_generatedFrom": "eval@local corpus",
+  "questions": [
+    {
+      "question": "What did we decide about the Q3 budget last week?",
+      "expectedTurnIds": [
+        "4f6dcfc8-e0b9-5eaa-889c-9c3225768e91"
+      ]
+    },
+    {
+      "question": "When did we agree to move the launch date?",
+      "expectedTurnIds": [
+        "15cfe53f-cef6-5a0b-b051-9801bbd0b795"
+      ]
+    },
+    {
+      "question": "When do end users finally get the product?",
+      "expectedTurnIds": [
+        "15cfe53f-cef6-5a0b-b051-9801bbd0b795"
+      ],
+      "filter": {
+        "timeRange": null,
+        "keyTerms": [
+          "end users",
+          "product rollout"
+        ],
+        "semanticQuery": "when do end users get the product"
+      }
+    },
+    {
+      "question": "What was the codename for the migration project?",
+      "expectedTurnIds": [
+        "a3cdaed5-8964-5527-8d19-46079516f97f"
+      ]
+    },
+    {
+      "question": "What port does the dev server run on?",
+      "expectedTurnIds": [
+        "899cbf32-8455-5abd-ba75-d74b651b3de7"
+      ]
+    },
+    {
+      "question": "How did we plan to handle duplicate ingestion?",
+      "expectedTurnIds": [
+        "cf493c93-4018-590c-af37-7185dbfcfee0",
+        "9e03e67d-04d9-5bf9-8188-0927c5fae792"
+      ]
+    },
+    {
+      "question": "What was the reasoning behind choosing reciprocal rank fusion?",
+      "expectedTurnIds": [
+        "a2d83fe0-c041-5454-93e9-684cee260275",
+        "d353b274-7e53-5420-8d8e-278a33706c26"
+      ]
+    },
+    {
+      "question": "What did Luke say about the hiring level?",
+      "expectedTurnIds": [
+        "70df3348-e77c-53a1-b8c9-1de1c27df1f6"
+      ]
+    },
+    {
+      "question": "Who owns the embeddings work?",
+      "expectedTurnIds": [
+        "c1238266-3025-58a9-a81a-df27ea9567f0"
+      ]
+    },
+    {
+      "question": "Who is on call this week?",
+      "expectedTurnIds": [
+        "e8f1386c-d8ef-5540-91ea-b84fd4332bb7"
+      ],
+      "filter": {
+        "timeRange": {
+          "start": "2026-11-09T00:00:00Z",
+          "end": "2026-11-16T00:00:00Z"
+        },
+        "keyTerms": [
+          "on call"
+        ],
+        "semanticQuery": "who is currently on call this week"
+      }
+    },
+    {
+      "question": "What did we conclude about quantum teleportation pricing?",
+      "expectedTurnIds": []
+    }
+  ]
+}

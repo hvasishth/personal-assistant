@@ -1,0 +1,144 @@
+[
+  {
+    "uuid": "conv-rrf-2026-10-16",
+    "name": "Why RRF over weighted sum",
+    "created_at": "2026-10-16T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "Remind me why we went with rank fusion instead of just adding the scores?",
+        "created_at": "2026-10-16T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Because the lexical ts_rank_cd scores and the vector cosine scores live on totally different scales, so a weighted sum needs calibration that drifts. RRF only looks at rank position, so it sidesteps that.",
+        "created_at": "2026-10-16T09:01:00Z"
+      },
+      {
+        "sender": "user",
+        "text": "And k=60?",
+        "created_at": "2026-10-16T09:02:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "k=60 is the common default from the original RRF paper; it damps the contribution of low-ranked items without tuning per query.",
+        "created_at": "2026-10-16T09:03:00Z"
+      }
+    ]
+  },
+  {
+    "uuid": "conv-ingest-2026-10-03",
+    "name": "Ingest idempotency",
+    "created_at": "2026-10-03T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "If I run ingest twice does it double everything?",
+        "created_at": "2026-10-03T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "No — each turn gets a content_hash and the insert is ON CONFLICT DO NOTHING, so the second run reports everything as skipped.",
+        "created_at": "2026-10-03T09:01:00Z"
+      },
+      {
+        "sender": "user",
+        "text": "What about editing a note then re-ingesting?",
+        "created_at": "2026-10-03T09:02:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Edited text hashes differently, so it comes in as a new turn; the old one stays unless you clear it. We don't diff-update in place yet.",
+        "created_at": "2026-10-03T09:03:00Z"
+      }
+    ]
+  },
+  {
+    "uuid": "conv-hiring-2026-09-09",
+    "name": "Hiring level discussion",
+    "created_at": "2026-09-09T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "Can you catch me up on where the hiring thread landed?",
+        "created_at": "2026-09-09T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Summarising the thread: Luke said we should hire at the senior level (L5), not mid, because a senior engineer can own the retrieval work end to end and we'll move faster even though it costs more up front.",
+        "created_at": "2026-09-09T09:01:00Z"
+      },
+      {
+        "sender": "user",
+        "text": "Did anyone push back?",
+        "created_at": "2026-09-09T09:02:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Dana worried about budget, but the group leaned toward Luke's view given how central retrieval is this quarter.",
+        "created_at": "2026-09-09T09:03:00Z"
+      }
+    ]
+  },
+  {
+    "uuid": "conv-latency-2026-11-04",
+    "name": "Latency budget",
+    "created_at": "2026-11-04T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "Where is the time going on a query?",
+        "created_at": "2026-11-04T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Mostly the answer generation — parse and embed are tens of milliseconds, search and fuse are small, and the LLM answer dominates TTFT because retrieved turns go in the system prompt.",
+        "created_at": "2026-11-04T09:01:00Z"
+      },
+      {
+        "sender": "user",
+        "text": "So we can't stream before retrieving?",
+        "created_at": "2026-11-04T09:02:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Right, there's a data dependency: the facts have to be in the prompt before the first token, so retrieval blocks generation.",
+        "created_at": "2026-11-04T09:03:00Z"
+      }
+    ]
+  },
+  {
+    "uuid": "conv-voice-2026-11-11",
+    "name": "Voice surface idea",
+    "created_at": "2026-11-11T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "Could we ingest voice memos as a surface too?",
+        "created_at": "2026-11-11T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Yes — surface is already a filter dimension ('text' | 'voice' | 'notes'), so transcribed voice memos would ingest as surface=voice and be filterable.",
+        "created_at": "2026-11-11T09:01:00Z"
+      }
+    ]
+  },
+  {
+    "uuid": "conv-budget-2026-07-15",
+    "name": "Early budget chat",
+    "created_at": "2026-07-15T09:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "user",
+        "text": "What's our compute budget looking like for Q3?",
+        "created_at": "2026-07-15T09:00:00Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "Q3 is mostly embedding API credits and a small Postgres host; the number firmed up later, but early Q3 it was comfortable.",
+        "created_at": "2026-07-15T09:01:00Z"
+      }
+    ]
+  }
+]
