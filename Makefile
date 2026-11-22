@@ -5,11 +5,27 @@
 DB_SVC := db
 PSQL   := docker compose exec $(DB_SVC) psql -U advisor -d advisor
 
-.PHONY: help dev dev-server dev-web db-up db-down db-wait db-apply db-reset db-psql db-logs db-status
+.PHONY: help up dev dev-server dev-web db-up db-down db-wait db-apply db-reset db-psql db-logs db-status
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+
+# Isolated pm2 daemon so we never touch any other pm2 processes you run.
+# pm2 is pinned in package.json/package-lock.json and run from node_modules.
+PM2 := PM2_HOME=$(CURDIR)/.pm2 $(CURDIR)/node_modules/.bin/pm2
+
+node_modules/.bin/pm2: package-lock.json
+	npm ci --no-audit --no-fund
+	@touch $@
+
+up: node_modules/.bin/pm2 db-up db-wait db-apply ## One-shot: apply schema, start api+web under pm2, stream all logs; Ctrl+C stops everything
+	@$(PM2) delete all >/dev/null 2>&1 || true
+	@trap '$(PM2) kill >/dev/null 2>&1; echo; echo "stopped api + web"; exit 0' INT TERM; \
+		$(PM2) start ecosystem.config.cjs >/dev/null && \
+		echo "api -> http://localhost:8787 (debugger 127.0.0.1:9229)  |  web -> http://localhost:5173" && \
+		$(PM2) logs --raw --lines 50 & \
+		wait $$!
 
 dev: db-up db-wait ## Run backend (debugger) + web dev servers together; Ctrl+C stops both
 	@echo "api    -> http://localhost:8787  (node debugger on 127.0.0.1:9229)"

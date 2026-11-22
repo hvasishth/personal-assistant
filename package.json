@@ -1,0 +1,8 @@
+{
+  "name": "personal-assistant",
+  "private": true,
+  "description": "Root tooling only (process manager for `make up`). App code lives in server/ and web/.",
+  "devDependencies": {
+    "pm2": "^7.1.2"
+  }
+}

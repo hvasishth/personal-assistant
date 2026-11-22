@@ -17,3 +17,4 @@ evals/reports/
 .DS_Store
 *.log
 .claude/settings.json
+.pm2/
