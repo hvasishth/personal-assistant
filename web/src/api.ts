@@ -140,13 +140,13 @@ export async function streamChat(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? ""; // keep the last, possibly-incomplete event
+    const rawEvents = buffer.split("\n\n");
+    buffer = rawEvents.pop() ?? ""; // keep the last, possibly-incomplete event
 
-    for (const chunk of events) {
+    for (const rawEvent of rawEvents) {
       let event = "message";
       let data = "";
-      for (const line of chunk.split("\n")) {
+      for (const line of rawEvent.split("\n")) {
         if (line.startsWith("event:")) event = line.slice(6).trim();
         else if (line.startsWith("data:")) data += line.slice(5).trim();
       }

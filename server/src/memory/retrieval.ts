@@ -25,7 +25,7 @@ import { searchSimilarFacts, searchFactsByText, type FactRow } from "./repo";
 
 export interface RetrievalDeps {
   pool: Pool;
-  embeddings: EmbeddingProvider;
+  embeddingProvider: EmbeddingProvider;
 }
 
 export interface RetrievalArgs {
@@ -62,25 +62,25 @@ async function retrieveFacts(
   args: RetrievalArgs,
 ): Promise<string[]> {
   const { userId, userMessage } = args;
-  const context = recentUserContext(args.history, userMessage);
+  const recentContext = recentUserContext(args.history, userMessage);
 
-  const [embedded, lexical] = await Promise.all([
-    deps.embeddings.embed(context ? [userMessage, context] : [userMessage]),
+  const [queryEmbeddings, lexicalMatches] = await Promise.all([
+    deps.embeddingProvider.embed(recentContext ? [userMessage, recentContext] : [userMessage]),
     searchFactsByText(deps.pool, userId, userMessage, PER_SOURCE),
   ]);
-  const curVec = embedded[0];
-  const ctxVec = context ? embedded[1] : undefined;
+  const messageEmbedding = queryEmbeddings[0];
+  const contextEmbedding = recentContext ? queryEmbeddings[1] : undefined;
 
-  const [curSem, ctxSem] = await Promise.all([
-    curVec ? searchSimilarFacts(deps.pool, userId, curVec, PER_SOURCE) : [],
-    ctxVec ? searchSimilarFacts(deps.pool, userId, ctxVec, PER_SOURCE) : [],
+  const [messageMatches, contextMatches] = await Promise.all([
+    messageEmbedding ? searchSimilarFacts(deps.pool, userId, messageEmbedding, PER_SOURCE) : [],
+    contextEmbedding ? searchSimilarFacts(deps.pool, userId, contextEmbedding, PER_SOURCE) : [],
   ]);
 
   return fuse(
     [
-      { list: curSem, weight: 1 }, // the live message — primary intent
-      { list: lexical, weight: 1 }, // exact-term hits on the live message
-      { list: ctxSem, weight: CONTEXT_WEIGHT }, // recent context — backfill
+      { list: messageMatches, weight: 1 }, // the live message — primary intent
+      { list: lexicalMatches, weight: 1 }, // exact-term hits on the live message
+      { list: contextMatches, weight: CONTEXT_WEIGHT }, // recent context — backfill
     ],
     MAX_FACTS,
   );
@@ -97,19 +97,19 @@ interface RankedList {
 // ts_rank combine without normalizing their very different score ranges. The
 // per-list weight lets context hits count for less than live-message hits.
 // Returns the top-n contents.
-function fuse(lists: RankedList[], n: number): string[] {
-  const score = new Map<string, number>();
-  const content = new Map<string, string>();
+function fuse(lists: RankedList[], limit: number): string[] {
+  const scores = new Map<string, number>();
+  const contentById = new Map<string, string>();
   for (const { list, weight } of lists) {
     list.forEach((f, rank) => {
-      score.set(f.id, (score.get(f.id) ?? 0) + weight / (RRF_K + rank));
-      content.set(f.id, f.content);
+      scores.set(f.id, (scores.get(f.id) ?? 0) + weight / (RRF_K + rank));
+      contentById.set(f.id, f.content);
     });
   }
-  return [...score.entries()]
+  return [...scores.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, n)
-    .map(([id]) => content.get(id)!);
+    .slice(0, limit)
+    .map(([id]) => contentById.get(id)!);
 }
 
 // The recent user turns that give a short follow-up its meaning. The current
@@ -128,13 +128,13 @@ function recentUserContext(
 }
 
 function buildSystemPrompt(facts: string[]): string {
-  const base =
+  const instructions =
     "You are a helpful personal assistant. Answer the user's latest message " +
     "using the conversation so far and the known facts about the user below. " +
     "If the facts don't cover something, answer normally — never invent facts.";
-  if (facts.length === 0) return base;
-  const block = facts.map((f) => `- ${f}`).join("\n");
-  return `${base}\n\nKnown facts about the user:\n${block}`;
+  if (facts.length === 0) return instructions;
+  const factList = facts.map((f) => `- ${f}`).join("\n");
+  return `${instructions}\n\nKnown facts about the user:\n${factList}`;
 }
 
 // History rows -> the model's message shape. We only ever store 'user' and

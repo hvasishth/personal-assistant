@@ -16,7 +16,7 @@ const ANSWER_SYSTEM =
   "- Be concise: answer the question, cite, stop.";
 
 export interface AnswerDeps {
-  provider: LLMProvider;
+  llmProvider: LLMProvider;
   model?: string;
 }
 
@@ -24,8 +24,8 @@ function renderTurns(turns: TurnRow[]): string {
   return turns
     .map((t) => {
       const title = t.conversationTitle ?? "untitled";
-      const when = t.ts.slice(0, 10);
-      return `[${t.id}] (${when} · ${title} · ${t.speaker}) ${t.text}`;
+      const date = t.ts.slice(0, 10);
+      return `[${t.id}] (${date} · ${title} · ${t.speaker}) ${t.text}`;
     })
     .join("\n\n");
 }
@@ -49,7 +49,7 @@ export async function streamAnswer(
   const started = Date.now();
   let firstTokenMs: number | null = null;
   let text = "";
-  for await (const ev of deps.provider.streamChat(messages, {
+  for await (const ev of deps.llmProvider.streamChat(messages, {
     model: deps.model,
     maxTokens: 1024,
   })) {

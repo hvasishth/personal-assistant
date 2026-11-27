@@ -78,12 +78,12 @@ async function main(): Promise<void> {
     }[] = [];
     for (const spec of SPECS) {
       const ids = new Set<string>();
-      for (const pat of spec.patterns) {
+      for (const pattern of spec.patterns) {
         const { rows } = await pool.query<{ id: string }>(
           `SELECT m.id FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
             WHERE c.user_id = $1 AND m.content ILIKE $2`,
-          [userId, pat],
+          [userId, pattern],
         );
         for (const r of rows) ids.add(r.id);
       }
@@ -96,8 +96,8 @@ async function main(): Promise<void> {
         ...(spec.filter ? { filter: spec.filter } : {}),
       });
     }
-    const out = { _generatedFrom: `${email} corpus`, questions };
-    await writeFile("eval/golden.json", JSON.stringify(out, null, 2) + "\n", "utf8");
+    const goldenFile = { _generatedFrom: `${email} corpus`, questions };
+    await writeFile("eval/golden.json", JSON.stringify(goldenFile, null, 2) + "\n", "utf8");
     console.log(`wrote eval/golden.json for ${email}:`);
     for (const q of questions) {
       console.log(`  [${q.expectedTurnIds.length}] ${q.question}`);

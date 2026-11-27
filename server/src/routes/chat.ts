@@ -36,15 +36,15 @@ interface ChatRequestBody {
 }
 
 export function makeChatRoute(
-  provider: LLMProvider,
+  llmProvider: LLMProvider,
   pool: Pool,
-  embeddings: EmbeddingProvider,
+  embeddingProvider: EmbeddingProvider,
 ) {
   return async function chat(req: Request, res: Response): Promise<void> {
     const body = (req.body ?? {}) as ChatRequestBody;
     const conversationId =
       typeof body.conversationId === "string" ? body.conversationId : undefined;
-    const messageId =
+    const userMessageId =
       typeof body.message?.id === "string" ? body.message.id : undefined;
     const content =
       typeof body.message?.content === "string" ? body.message.content : undefined;
@@ -54,7 +54,7 @@ export function makeChatRoute(
         : undefined;
     const userId = req.userId;
 
-    if (!conversationId || !messageId || !content || !assistantMessageId) {
+    if (!conversationId || !userMessageId || !content || !assistantMessageId) {
       res.status(400).json({
         error:
           "body must be { conversationId, message: { id, content }, assistantMessageId }",
@@ -77,14 +77,14 @@ export function makeChatRoute(
 
     // Persist the user's turn. Idempotent on the message id: a duplicate
     // request inserts nothing the second time.
-    await insertUserMessage(pool, { id: messageId, conversationId, content });
+    await insertUserMessage(pool, { id: userMessageId, conversationId, content });
 
     // Background memory extraction (Step 5): distill durable facts from the
     // user's message and store them for later retrieval. Fire-and-forget — it
     // owns its errors and must never delay or break the chat response.
     void extractAndStoreFacts(
-      { pool, provider, embeddings },
-      { userId, content, sourceMessageId: messageId },
+      { pool, llmProvider, embeddingProvider },
+      { userId, content, sourceMessageId: userMessageId },
     );
 
     // SSE handshake. These headers turn the response into an event stream the
@@ -95,7 +95,7 @@ export function makeChatRoute(
       Connection: "keep-alive",
     });
 
-    const send = (event: string, data: unknown): void => {
+    const sendEvent = (event: string, data: unknown): void => {
       log.trace("sse ->", event, data);
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -106,54 +106,54 @@ export function makeChatRoute(
     // spending another LLM call. An 'incomplete' turn (a reply whose stream
     // dropped last time) is NOT replayed — we fall through and regenerate it,
     // so the user never gets a truncated answer served back as final.
-    const existingAssistant = await findMessageById(pool, assistantMessageId);
-    if (existingAssistant && existingAssistant.status === "complete") {
+    const existingReply = await findMessageById(pool, assistantMessageId);
+    if (existingReply && existingReply.status === "complete") {
       log.debug("chat replay:", assistantMessageId);
-      send("token", { text: existingAssistant.content });
-      send("done", { usage: null, replayed: true });
+      sendEvent("token", { text: existingReply.content });
+      sendEvent("done", { usage: null, replayed: true });
       // A replayed turn still ensures the conversation gets titled — covers the
       // case where the original turn's titling was missed (it failed, or the
       // first attempt dropped before it ran). No-ops if already titled.
-      void autoTitleConversation(pool, provider, conversationId, content);
+      void autoTitleConversation(pool, llmProvider, conversationId, content);
       res.end();
       return;
     }
 
     // If the browser goes away, abort the upstream LLM request too so we don't
     // keep paying for tokens no one will read.
-    const ac = new AbortController();
-    res.on("close", () => ac.abort());
+    const abortController = new AbortController();
+    res.on("close", () => abortController.abort());
 
     // Retrieval + prompt assembly (Step 5) — buildPromptMessages is YOUR piece.
     // Today it returns the history verbatim; it's where retrieval plugs in.
     const history = await loadHistory(pool, conversationId);
     const promptMessages = await buildPromptMessages(
-      { pool, embeddings },
+      { pool, embeddingProvider },
       { userId, conversationId, history, userMessage: content },
     );
 
     log.debug("chat request:", promptMessages.length, "message(s) in context");
 
-    let full = "";
+    let replyText = "";
     let completed = false;
     try {
-      for await (const ev of provider.streamChat(promptMessages, {
-        signal: ac.signal,
+      for await (const ev of llmProvider.streamChat(promptMessages, {
+        signal: abortController.signal,
       })) {
         if (ev.type === "text") {
-          full += ev.text;
-          send("token", { text: ev.text });
+          replyText += ev.text;
+          sendEvent("token", { text: ev.text });
         } else if (ev.type === "done") {
           completed = true;
-          send("done", { usage: ev.usage ?? null });
+          sendEvent("done", { usage: ev.usage ?? null });
         } else {
-          send("error", { message: ev.message });
+          sendEvent("error", { message: ev.message });
         }
       }
     } catch (err) {
       // A thrown error (e.g. the parser stub, or an aborted fetch) lands here.
-      if (!ac.signal.aborted) {
-        send("error", {
+      if (!abortController.signal.aborted) {
+        sendEvent("error", {
           message: err instanceof Error ? err.message : "stream failed",
         });
       }
@@ -167,12 +167,12 @@ export function makeChatRoute(
       // partial (aborted/errored/dropped mid-stream) is saved 'incomplete' and
       // regenerated on retry, not replayed. Nothing streamed (full === "")
       // means the failure was before any text — the user turn is already stored.
-      if (full) {
+      if (replyText) {
         try {
           await upsertAssistantMessage(pool, {
             id: assistantMessageId,
             conversationId,
-            content: full,
+            content: replyText,
             status: completed ? "complete" : "incomplete",
           });
           await touchConversation(pool, conversationId);
@@ -186,8 +186,8 @@ export function makeChatRoute(
       // never holds the response open. The client learns the title by polling
       // GET /api/conversations/:id. autoTitleConversation owns its errors, so
       // this never rejects.
-      if (completed && full) {
-        void autoTitleConversation(pool, provider, conversationId, content);
+      if (completed && replyText) {
+        void autoTitleConversation(pool, llmProvider, conversationId, content);
       }
 
       res.end();

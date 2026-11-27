@@ -54,7 +54,7 @@ export async function retrieveTurns(
   const wantLexical = args.mode !== "vector";
   const wantVector = args.mode !== "lexical" && args.questionEmbedding !== null;
 
-  const [lexical, vector] = await Promise.all([
+  const [lexicalHits, vectorHits] = await Promise.all([
     wantLexical
       ? searchTurnsLexical(pool, args.userId, lexicalText(args.parsed), filters, PER_SOURCE)
       : Promise.resolve([]),
@@ -65,8 +65,8 @@ export async function retrieveTurns(
 
   const fusedIds = reciprocalRankFusion(
     [
-      { list: lexical, weight: 1 },
-      { list: vector, weight: 1 },
+      { list: lexicalHits, weight: 1 },
+      { list: vectorHits, weight: 1 },
     ],
     DEFAULT_RRF_K,
   ).slice(0, args.topK);

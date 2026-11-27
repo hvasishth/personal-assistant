@@ -18,15 +18,15 @@ export function createFakeEmbeddingProvider(): EmbeddingProvider {
 }
 
 function embedOne(text: string): number[] {
-  const v = new Array<number>(EMBEDDING_DIM).fill(0);
-  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  for (const tok of tokens) {
-    const h = hash(tok) % EMBEDDING_DIM;
-    v[h] = (v[h] ?? 0) + 1;
+  const vector = new Array<number>(EMBEDDING_DIM).fill(0);
+  const words = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  for (const token of words) {
+    const h = hash(token) % EMBEDDING_DIM;
+    vector[h] = (vector[h] ?? 0) + 1;
   }
   // L2-normalize so cosine distance behaves (and matches a normalized index).
-  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
-  return v.map((x) => x / norm);
+  const norm = Math.sqrt(vector.reduce((s, x) => s + x * x, 0)) || 1;
+  return vector.map((x) => x / norm);
 }
 
 // FNV-1a — a small, fast, deterministic string hash.

@@ -12,7 +12,7 @@ const server = app.listen(config.port, () => {
     `personal-assistant server listening on http://localhost:${config.port}`,
   );
   log.info(
-    `  provider=${config.provider} model=${config.model} logLevel=${config.logLevel}`,
+    `  provider=${config.llmProviderName} model=${config.llmModel} logLevel=${config.logLevel}`,
   );
 });
 

@@ -5,7 +5,7 @@
 //   ADVISOR_PROVIDER=anthropic tsx --env-file-if-exists=../.env eval/debug-parse.ts
 
 import { loadConfig } from "../src/config";
-import { createProvider } from "../src/llm";
+import { createLlmProvider } from "../src/llm";
 import { parseQuery } from "../src/recall/queryParse";
 
 const NOW = new Date("2026-11-16T00:00:00Z");
@@ -20,9 +20,9 @@ const QUESTIONS = [
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const provider = createProvider(config);
+  const llmProvider = createLlmProvider(config);
   for (const q of QUESTIONS) {
-    const parsed = await parseQuery({ provider }, q, NOW);
+    const parsed = await parseQuery({ llmProvider }, q, NOW);
     console.log(`\nQ: ${q}`);
     console.log(`   timeRange : ${JSON.stringify(parsed.timeRange)}`);
     console.log(`   keyTerms  : ${JSON.stringify(parsed.keyTerms)}`);

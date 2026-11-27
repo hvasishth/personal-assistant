@@ -36,9 +36,9 @@ export function App() {
   // recent, or start a fresh chat if they have none.
   useEffect(() => {
     if (!user) return;
-    listConversations().then((cs) => {
-      setConversations(cs);
-      setActiveId(cs[0]?.id ?? crypto.randomUUID());
+    listConversations().then((latest) => {
+      setConversations(latest);
+      setActiveId(latest[0]?.id ?? crypto.randomUUID());
     });
   }, [user]);
 
@@ -57,9 +57,9 @@ export function App() {
   // since titling now runs in the background on the server — poll for the active
   // conversation's title if it doesn't have one yet.
   async function handleTurnComplete() {
-    const cs = await listConversations();
-    setConversations(cs);
-    const active = cs.find((c) => c.id === activeId);
+    const latest = await listConversations();
+    setConversations(latest);
+    const active = latest.find((c) => c.id === activeId);
     if (active && !active.title) pollForTitle(active.id);
   }
 
@@ -74,8 +74,8 @@ export function App() {
       tries += 1;
       const conv = await getConversation(id);
       if (conv?.title) {
-        setConversations((cur) =>
-          cur.map((c) => (c.id === id ? { ...c, title: conv.title } : c)),
+        setConversations((current) =>
+          current.map((c) => (c.id === id ? { ...c, title: conv.title } : c)),
         );
         titlePolls.current.delete(id);
         return;

@@ -54,22 +54,22 @@ export async function* parseAnthropicStream(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n\n');
-    buffer = lines.pop() ?? '';   // last piece may be a half-received event
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        const [eventLine, data] = line.split('data:');
-        const event = eventLine?.split(':')?.[1]?.trim();
+    const eventBlocks = buffer.split('\n\n');
+    buffer = eventBlocks.pop() ?? '';   // last piece may be a half-received event
+    for (const eventBlock of eventBlocks) {
+      if (eventBlock.startsWith('event:')) {
+        const [eventPart, data] = eventBlock.split('data:');
+        const event = eventPart?.split(':')?.[1]?.trim();
         const parsedData = data ? JSON.parse(data) : undefined;
-        const partToSendToClient = parsedData? parsedData.delta?.text : '';
-        log.trace('anthropic sse block:', JSON.stringify(line));
+        const deltaText = parsedData? parsedData.delta?.text : '';
+        log.trace('anthropic sse block:', JSON.stringify(eventBlock));
         if (event === 'message_start') {
           continue;
         } else if (event === 'content_block_start') {
           continue;
         } else if (event === 'content_block_delta') {
           if (parsedData?.delta?.type === 'text_delta') {
-            yield { type: 'text', text: partToSendToClient };
+            yield { type: 'text', text: deltaText };
           }
         } else if (event === 'ping') {
           continue;

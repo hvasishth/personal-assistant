@@ -16,8 +16,8 @@ export interface FactMatch extends FactRow {
 }
 
 // pgvector wants a literal like '[0.1,0.2,0.3]'.
-export function toVectorLiteral(vec: number[]): string {
-  return `[${vec.join(",")}]`;
+export function toVectorLiteral(embedding: number[]): string {
+  return `[${embedding.join(",")}]`;
 }
 
 export async function insertFact(

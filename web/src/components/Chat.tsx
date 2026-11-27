@@ -23,8 +23,8 @@ export function Chat({
   // conversation (not yet persisted) or one that isn't ours (server 404s).
   useEffect(() => {
     let cancelled = false;
-    loadConversation(conversationId).then((msgs) => {
-      if (!cancelled) setMessages(msgs);
+    loadConversation(conversationId).then((loaded) => {
+      if (!cancelled) setMessages(loaded);
     });
     return () => {
       cancelled = true;

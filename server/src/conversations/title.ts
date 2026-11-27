@@ -12,7 +12,7 @@ const TITLE_MODEL = "claude-haiku-5-5";
 const TITLE_MAX_TOKENS = 24;
 
 export async function generateTitle(
-  provider: LLMProvider,
+  llmProvider: LLMProvider,
   firstUserMessage: string,
 ): Promise<string | null> {
   const prompt: ChatMessage[] = [
@@ -28,7 +28,7 @@ export async function generateTitle(
 
   let text = "";
   try {
-    for await (const ev of provider.streamChat(prompt, {
+    for await (const ev of llmProvider.streamChat(prompt, {
       model: TITLE_MODEL,
       maxTokens: TITLE_MAX_TOKENS,
     })) {
@@ -53,14 +53,14 @@ export async function generateTitle(
 // chat route can invoke it fire-and-forget without blocking the response.
 export async function autoTitleConversation(
   pool: Pool,
-  provider: LLMProvider,
+  llmProvider: LLMProvider,
   conversationId: string,
   firstUserMessage: string,
 ): Promise<void> {
   try {
     const existing = await getConversationTitle(pool, conversationId);
     if (existing) return; // already titled (or being titled by a prior call)
-    const title = await generateTitle(provider, firstUserMessage);
+    const title = await generateTitle(llmProvider, firstUserMessage);
     if (title) await setConversationTitleIfNull(pool, conversationId, title);
   } catch (err) {
     log.warn("auto-title failed:", err);
@@ -70,9 +70,9 @@ export async function autoTitleConversation(
 // Trim, strip wrapping quotes the model sometimes adds, drop a trailing period,
 // collapse whitespace, and cap length. Returns null if nothing usable remains.
 function cleanTitle(raw: string): string | null {
-  let t = raw.trim().replace(/\s+/g, " ");
-  t = t.replace(/^["'“”]+|["'“”]+$/g, "").trim();
-  t = t.replace(/\.$/, "").trim();
-  if (!t) return null;
-  return t.slice(0, 80);
+  let title = raw.trim().replace(/\s+/g, " ");
+  title = title.replace(/^["'“”]+|["'“”]+$/g, "").trim();
+  title = title.replace(/\.$/, "").trim();
+  if (!title) return null;
+  return title.slice(0, 80);
 }

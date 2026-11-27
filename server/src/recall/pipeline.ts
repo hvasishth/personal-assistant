@@ -25,15 +25,15 @@ import type {
 
 export interface RecallDeps {
   pool: Pool;
-  provider: LLMProvider;
-  embeddings: EmbeddingProvider;
+  llmProvider: LLMProvider;
+  embeddingProvider: EmbeddingProvider;
 }
 
 export interface RecallOptions {
   mode?: RetrievalMode; // default "hybrid"
   topK?: number; // default 5
   now?: Date; // default new Date() — the reference for relative dates
-  answer?: boolean; // default true; false = retrieval only (eval)
+  generateAnswer?: boolean; // default true; false = retrieval only (eval)
   onToken?: (t: string) => void; // stream sink for the answer
 }
 
@@ -46,16 +46,16 @@ export async function runRecall(
   const mode = opts.mode ?? "hybrid";
   const topK = opts.topK ?? 5;
   const now = opts.now ?? new Date();
-  const wantAnswer = opts.answer !== false;
+  const shouldAnswer = opts.generateAnswer !== false;
   const timings: StageTimings = {};
 
   // Stage 1 (parse) and the question embedding are independent; run both and
   // wait — search needs the filter from one and the vector from the other.
-  const [parsed, embedding] = await Promise.all([
+  const [parsed, questionEmbedding] = await Promise.all([
     time(timings, "parse", () => parseQuery(deps, question, now)),
     time(timings, "embed", async () => {
-      const [vec] = await deps.embeddings.embed([question]);
-      return vec ?? null;
+      const [embedding] = await deps.embeddingProvider.embed([question]);
+      return embedding ?? null;
     }),
   ]);
 
@@ -63,20 +63,20 @@ export async function runRecall(
   let turns = await time(timings, "retrieve", () =>
     retrieveTurns(
       { pool: deps.pool },
-      { userId, parsed, questionEmbedding: embedding, mode, topK },
+      { userId, parsed, questionEmbedding, mode, topK },
     ),
   );
 
   // Widen once on an empty time-filtered result, then say so in the answer.
   let widened = false;
   if (turns.length === 0 && mode !== "hybrid_no_time") {
-    const wider = widenWindow(parsed);
-    if (wider) {
+    const widenedQuery = widenWindow(parsed);
+    if (widenedQuery) {
       widened = true;
       turns = await time(timings, "retrieve_widened", () =>
         retrieveTurns(
           { pool: deps.pool },
-          { userId, parsed: wider, questionEmbedding: embedding, mode, topK },
+          { userId, parsed: widenedQuery, questionEmbedding, mode, topK },
         ),
       );
     }
@@ -84,18 +84,18 @@ export async function runRecall(
 
   // Stage 5.
   let answer: string | null = null;
-  if (wantAnswer) {
+  if (shouldAnswer) {
     if (turns.length === 0) {
       answer = "Not found in the retrieved turns.";
       timings.answer = 0;
     } else {
-      const res = await time(timings, "answer", () =>
-        streamAnswer({ provider: deps.provider }, { question, turns }, opts.onToken),
+      const answerResult = await time(timings, "answer", () =>
+        streamAnswer({ llmProvider: deps.llmProvider }, { question, turns }, opts.onToken),
       );
       answer = widened
-        ? `(time window widened)\n${res.text}`
-        : res.text;
-      if (res.firstTokenMs !== null) timings.answer_first_token = res.firstTokenMs;
+        ? `(time window widened)\n${answerResult.text}`
+        : answerResult.text;
+      if (answerResult.firstTokenMs !== null) timings.answer_first_token = answerResult.firstTokenMs;
     }
   }
 
@@ -105,12 +105,12 @@ export async function runRecall(
 // Double the time window by extending `start` earlier by its current span. Only
 // possible when both bounds are known; otherwise there is nothing to widen.
 function widenWindow(parsed: ParsedQuery): ParsedQuery | null {
-  const tr = parsed.timeRange;
-  if (!tr || !tr.start || !tr.end) return null;
-  const start = new Date(tr.start).getTime();
-  const end = new Date(tr.end).getTime();
-  const span = end - start;
-  if (!(span > 0)) return null;
-  const newStart = new Date(start - span).toISOString();
-  return { ...parsed, timeRange: { start: newStart, end: tr.end } };
+  const timeRange = parsed.timeRange;
+  if (!timeRange || !timeRange.start || !timeRange.end) return null;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  const durationMs = end - start;
+  if (!(durationMs > 0)) return null;
+  const newStart = new Date(start - durationMs).toISOString();
+  return { ...parsed, timeRange: { start: newStart, end: timeRange.end } };
 }

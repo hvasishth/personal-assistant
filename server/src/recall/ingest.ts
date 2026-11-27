@@ -17,7 +17,7 @@ const EMBED_BATCH = 64;
 
 export interface IngestDeps {
   pool: Pool;
-  embeddings: EmbeddingProvider;
+  embeddingProvider: EmbeddingProvider;
   embeddingModel: string;
 }
 
@@ -60,8 +60,8 @@ export async function ingestNotesFolder(
   userId: string,
   dirPath: string,
 ): Promise<IngestResult> {
-  const convs = await parseNotesFolder(dirPath);
-  return store(deps, userId, convs, "meeting_notes");
+  const parsedConversations = await parseNotesFolder(dirPath);
+  return store(deps, userId, parsedConversations, "meeting_notes");
 }
 
 // -------------------------------------------------------------------------
@@ -71,12 +71,12 @@ export async function ingestNotesFolder(
 async function store(
   deps: IngestDeps,
   userId: string,
-  convs: ParsedConversation[],
+  parsedConversations: ParsedConversation[],
   source: string,
 ): Promise<IngestResult> {
   // Flatten into turn records first (so embedding batches across conversations),
   // assigning a deterministic uuid and a content hash to each.
-  interface Record {
+  interface TurnRecord {
     id: string;
     conversationId: string;
     role: string;
@@ -86,10 +86,10 @@ async function store(
     ts: string;
     contentHash: string;
   }
-  const records: Record[] = [];
+  const records: TurnRecord[] = [];
   let conversationCount = 0;
 
-  for (const conv of convs) {
+  for (const conv of parsedConversations) {
     const conversationId = uuidFrom(`${source}:${conv.externalId}`);
     await upsertIngestConversation(deps.pool, {
       id: conversationId,
@@ -127,16 +127,16 @@ async function store(
   let skipped = 0;
   for (let i = 0; i < records.length; i += EMBED_BATCH) {
     const batch = records.slice(i, i + EMBED_BATCH);
-    let vectors: (number[] | null)[];
+    let batchEmbeddings: (number[] | null)[];
     try {
-      vectors = await deps.embeddings.embed(batch.map((r) => r.content));
+      batchEmbeddings = await deps.embeddingProvider.embed(batch.map((r) => r.content));
     } catch (err) {
       log.warn("embed batch failed; inserting without vectors:", err);
-      vectors = batch.map(() => null);
+      batchEmbeddings = batch.map(() => null);
     }
     for (let j = 0; j < batch.length; j++) {
       const r = batch[j]!;
-      const embedding = vectors[j] ?? null;
+      const embedding = batchEmbeddings[j] ?? null;
       const didInsert = await insertTurn(deps.pool, {
         id: r.id,
         conversationId: r.conversationId,
@@ -170,35 +170,35 @@ function parseClaudeExport(raw: string): ParsedConversation[] {
   } catch {
     throw new Error("claude export is not valid JSON");
   }
-  const conversations = Array.isArray(data)
+  const rawConversations = Array.isArray(data)
     ? data
     : isObj(data) && Array.isArray(data.conversations)
       ? data.conversations
       : [];
   const out: ParsedConversation[] = [];
-  for (const c of conversations) {
-    if (!isObj(c)) continue;
+  for (const rawConversation of rawConversations) {
+    if (!isObj(rawConversation)) continue;
     const externalId =
-      str(c.uuid) ?? str(c.id) ?? str(c.conversation_id) ?? cryptoRandom();
-    const title = str(c.name) ?? str(c.title) ?? null;
-    const startedAt = isoOrNull(c.created_at) ?? isoOrNull(c.created);
-    const rawMessages = Array.isArray(c.chat_messages)
-      ? c.chat_messages
-      : Array.isArray(c.messages)
-        ? c.messages
+      str(rawConversation.uuid) ?? str(rawConversation.id) ?? str(rawConversation.conversation_id) ?? cryptoRandom();
+    const title = str(rawConversation.name) ?? str(rawConversation.title) ?? null;
+    const startedAt = isoOrNull(rawConversation.created_at) ?? isoOrNull(rawConversation.created);
+    const rawMessages = Array.isArray(rawConversation.chat_messages)
+      ? rawConversation.chat_messages
+      : Array.isArray(rawConversation.messages)
+        ? rawConversation.messages
         : [];
     const turns: ParsedTurn[] = [];
-    for (const m of rawMessages) {
-      if (!isObj(m)) continue;
-      const text = messageText(m);
+    for (const rawMessage of rawMessages) {
+      if (!isObj(rawMessage)) continue;
+      const text = messageText(rawMessage);
       if (!text) continue;
-      const sender = str(m.sender) ?? str(m.role) ?? "user";
+      const sender = str(rawMessage.sender) ?? str(rawMessage.role) ?? "user";
       const role = sender === "assistant" ? "assistant" : "user";
       turns.push({
         role,
         content: text,
         surface: "text",
-        ts: isoOrNull(m.created_at) ?? startedAt ?? new Date().toISOString(),
+        ts: isoOrNull(rawMessage.created_at) ?? startedAt ?? new Date().toISOString(),
       });
     }
     if (turns.length > 0) out.push({ externalId, title, startedAt, turns });
@@ -207,15 +207,15 @@ function parseClaudeExport(raw: string): ParsedConversation[] {
 }
 
 // A message's text may be a `text` field or an array of content blocks.
-function messageText(m: Record<string, unknown>): string | null {
-  if (typeof m.text === "string" && m.text.trim()) return m.text.trim();
-  if (Array.isArray(m.content)) {
-    const parts = m.content
+function messageText(rawMessage: Record<string, unknown>): string | null {
+  if (typeof rawMessage.text === "string" && rawMessage.text.trim()) return rawMessage.text.trim();
+  if (Array.isArray(rawMessage.content)) {
+    const parts = rawMessage.content
       .map((p) => (isObj(p) && typeof p.text === "string" ? p.text : ""))
       .filter((s) => s.length > 0);
     if (parts.length > 0) return parts.join("\n").trim();
   }
-  if (typeof m.content === "string" && m.content.trim()) return m.content.trim();
+  if (typeof rawMessage.content === "string" && rawMessage.content.trim()) return rawMessage.content.trim();
   return null;
 }
 
@@ -269,8 +269,8 @@ function splitNoteSections(text: string): string[] {
 }
 
 async function fileDate(fullPath: string, name: string): Promise<string> {
-  const m = name.match(/(\d{4}-\d{2}-\d{2})/);
-  if (m) return `${m[1]}T00:00:00Z`;
+  const dateMatch = name.match(/(\d{4}-\d{2}-\d{2})/);
+  if (dateMatch) return `${dateMatch[1]}T00:00:00Z`;
   try {
     const s = await stat(fullPath);
     return s.mtime.toISOString();
@@ -287,22 +287,22 @@ async function fileDate(fullPath: string, name: string): Promise<string> {
 // record is too large to embed usefully. Short turns pass through unchanged.
 function splitLongTurn(text: string): string[] {
   if (text.length <= MAX_TURN_CHARS) return [text];
-  const paras = text.split(/\n\s*\n/);
+  const paragraphs = text.split(/\n\s*\n/);
   const pieces: string[] = [];
-  let buf = "";
-  for (const para of paras) {
-    if (buf.length + para.length + 2 > MAX_TURN_CHARS && buf.length > 0) {
-      pieces.push(buf);
-      buf = "";
+  let pending = "";
+  for (const paragraph of paragraphs) {
+    if (pending.length + paragraph.length + 2 > MAX_TURN_CHARS && pending.length > 0) {
+      pieces.push(pending);
+      pending = "";
     }
-    buf = buf ? `${buf}\n\n${para}` : para;
+    pending = pending ? `${pending}\n\n${paragraph}` : paragraph;
     // A single paragraph over the limit: hard-split it.
-    while (buf.length > MAX_TURN_CHARS) {
-      pieces.push(buf.slice(0, MAX_TURN_CHARS));
-      buf = buf.slice(MAX_TURN_CHARS);
+    while (pending.length > MAX_TURN_CHARS) {
+      pieces.push(pending.slice(0, MAX_TURN_CHARS));
+      pending = pending.slice(MAX_TURN_CHARS);
     }
   }
-  if (buf) pieces.push(buf);
+  if (pending) pieces.push(pending);
   return pieces;
 }
 
@@ -310,18 +310,18 @@ function splitLongTurn(text: string): string[] {
 // user re-ingesting the same text is a no-op, while two users may hold identical
 // text. (Duplicate content within one user's corpus is intentionally collapsed.)
 function hashContent(userId: string, content: string): string {
-  const norm = content.replace(/\s+/g, " ").trim().toLowerCase();
-  return createHash("sha256").update(`${userId}\n${norm}`).digest("hex");
+  const normalized = content.replace(/\s+/g, " ").trim().toLowerCase();
+  return createHash("sha256").update(`${userId}\n${normalized}`).digest("hex");
 }
 
 // A deterministic RFC-4122 v5-style uuid from a name, so re-ingest produces the
 // same ids (and thus hits the PK on conflict).
 function uuidFrom(name: string): string {
-  const h = createHash("sha1").update(name).digest();
-  const b = Buffer.from(h.subarray(0, 16));
-  b[6] = (b[6]! & 0x0f) | 0x50; // version 5
-  b[8] = (b[8]! & 0x3f) | 0x80; // RFC-4122 variant
-  const hex = b.toString("hex");
+  const digest = createHash("sha1").update(name).digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50; // version 5
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC-4122 variant
+  const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 

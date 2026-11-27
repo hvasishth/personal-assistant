@@ -12,7 +12,7 @@ import { log } from "../logger";
 const PARSE_MODEL = "claude-haiku-5-5";
 
 export interface ParseDeps {
-  provider: LLMProvider;
+  llmProvider: LLMProvider;
 }
 
 export async function parseQuery(
@@ -44,7 +44,7 @@ export async function parseQuery(
   ];
 
   try {
-    const raw = await completeText(deps.provider, prompt, {
+    const raw = await completeText(deps.llmProvider, prompt, {
       model: PARSE_MODEL,
       maxTokens: 400,
     });
@@ -81,30 +81,30 @@ function toTs(day: unknown): string | null {
 function normTimeRange(x: unknown): ParsedQuery["timeRange"] {
   if (x === null || x === undefined) return null;
   if (typeof x !== "object") return null;
-  const o = x as Record<string, unknown>;
-  const start = toTs(o.start);
-  const end = toTs(o.end);
+  const fields = x as Record<string, unknown>;
+  const start = toTs(fields.start);
+  const end = toTs(fields.end);
   if (start === null && end === null) return null;
   return { start, end };
 }
 
 function normalize(raw: string, question: string): ParsedQuery {
-  const json = raw.match(/\{[\s\S]*\}/)?.[0];
-  if (!json) return fallback(question);
+  const jsonText = raw.match(/\{[\s\S]*\}/)?.[0];
+  if (!jsonText) return fallback(question);
   try {
-    const o = JSON.parse(json) as Record<string, unknown>;
-    const semantic =
-      typeof o.semantic_query === "string" && o.semantic_query.trim().length > 0
-        ? o.semantic_query.trim()
+    const fields = JSON.parse(jsonText) as Record<string, unknown>;
+    const semanticQuery =
+      typeof fields.semantic_query === "string" && fields.semantic_query.trim().length > 0
+        ? fields.semantic_query.trim()
         : question;
     return {
-      timeRange: normTimeRange(o.time_range),
-      people: strArray(o.people),
-      surfaces: strArray(o.surfaces).filter(
+      timeRange: normTimeRange(fields.time_range),
+      people: strArray(fields.people),
+      surfaces: strArray(fields.surfaces).filter(
         (s) => s === "text" || s === "voice" || s === "notes",
       ),
-      keyTerms: strArray(o.key_terms),
-      semanticQuery: semantic,
+      keyTerms: strArray(fields.key_terms),
+      semanticQuery,
     };
   } catch {
     return fallback(question);

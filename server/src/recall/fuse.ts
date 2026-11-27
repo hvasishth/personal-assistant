@@ -16,11 +16,11 @@ export function reciprocalRankFusion(
   lists: WeightedList[],
   k: number = DEFAULT_RRF_K,
 ): string[] {
-  const score = new Map<string, number>();
+  const scores = new Map<string, number>();
   for (const { list, weight } of lists) {
     list.forEach((hit, rank) => {
-      score.set(hit.id, (score.get(hit.id) ?? 0) + weight / (k + rank));
+      scores.set(hit.id, (scores.get(hit.id) ?? 0) + weight / (k + rank));
     });
   }
-  return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  return [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }

@@ -8,10 +8,10 @@ export type ProviderName = "fake" | "anthropic";
 export type EmbeddingProviderName = "fake" | "voyage";
 
 export interface Config {
-  provider: ProviderName;
-  model: string;
+  llmProviderName: ProviderName;
+  llmModel: string;
   anthropicApiKey: string | undefined;
-  embeddingProvider: EmbeddingProviderName;
+  embeddingProviderName: EmbeddingProviderName;
   voyageApiKey: string | undefined;
   embeddingModel: string;
   dataDir: string;
@@ -20,14 +20,14 @@ export interface Config {
   logLevel: LogLevel;
 }
 
-function parseProvider(raw: string | undefined): ProviderName {
+function parseLlmProviderName(raw: string | undefined): ProviderName {
   if (raw === "fake" || raw === "anthropic") return raw;
   throw new Error(
     `ADVISOR_PROVIDER must be "fake" or "anthropic", got: ${raw ?? "(unset)"}`,
   );
 }
 
-function parseEmbeddingProvider(raw: string | undefined): EmbeddingProviderName {
+function parseEmbeddingProviderName(raw: string | undefined): EmbeddingProviderName {
   if (raw === "fake" || raw === "voyage") return raw;
   throw new Error(
     `ADVISOR_EMBEDDING_PROVIDER must be "fake" or "voyage", got: ${raw ?? "(unset)"}`,
@@ -44,27 +44,27 @@ function parseLogLevel(raw: string | undefined): LogLevel {
 
 export function loadConfig(): Config {
   // Default to the fake provider so a fresh clone runs with zero setup.
-  const provider = parseProvider(process.env.ADVISOR_PROVIDER ?? "fake");
+  const llmProviderName = parseLlmProviderName(process.env.ADVISOR_PROVIDER ?? "fake");
 
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || undefined;
   // Fail fast: a real provider with no key is a misconfiguration, not a runtime surprise.
-  if (provider === "anthropic" && !anthropicApiKey) {
+  if (llmProviderName === "anthropic" && !anthropicApiKey) {
     throw new Error("ADVISOR_PROVIDER=anthropic but ANTHROPIC_API_KEY is empty");
   }
 
-  const embeddingProvider = parseEmbeddingProvider(
+  const embeddingProviderName = parseEmbeddingProviderName(
     process.env.ADVISOR_EMBEDDING_PROVIDER ?? "fake",
   );
   const voyageApiKey = process.env.VOYAGE_API_KEY || undefined;
-  if (embeddingProvider === "voyage" && !voyageApiKey) {
+  if (embeddingProviderName === "voyage" && !voyageApiKey) {
     throw new Error("ADVISOR_EMBEDDING_PROVIDER=voyage but VOYAGE_API_KEY is empty");
   }
 
   return {
-    provider,
-    model: process.env.ADVISOR_MODEL ?? "claude-opus-5-5",
+    llmProviderName,
+    llmModel: process.env.ADVISOR_MODEL ?? "claude-opus-5-5",
     anthropicApiKey,
-    embeddingProvider,
+    embeddingProviderName,
     voyageApiKey,
     embeddingModel: process.env.ADVISOR_EMBEDDING_MODEL ?? "voyage-3",
     dataDir: process.env.ADVISOR_DATA_DIR ?? "./data",

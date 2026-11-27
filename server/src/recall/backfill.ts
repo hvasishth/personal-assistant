@@ -7,7 +7,7 @@ import { listUnembeddedTurns, setTurnEmbedding } from "./repo";
 // the vector side. Loops in batches until the corpus is fully embedded.
 export interface BackfillDeps {
   pool: Pool;
-  embeddings: EmbeddingProvider;
+  embeddingProvider: EmbeddingProvider;
   embeddingModel: string;
 }
 
@@ -20,12 +20,12 @@ export async function backfillEmbeddings(
   for (;;) {
     const turns = await listUnembeddedTurns(deps.pool, userId, batchSize);
     if (turns.length === 0) break;
-    const vectors = await deps.embeddings.embed(turns.map((t) => t.text));
+    const turnEmbeddings = await deps.embeddingProvider.embed(turns.map((t) => t.text));
     for (let i = 0; i < turns.length; i++) {
-      const vec = vectors[i];
+      const embedding = turnEmbeddings[i];
       const turn = turns[i];
-      if (!vec || !turn) continue;
-      await setTurnEmbedding(deps.pool, turn.id, vec, deps.embeddingModel);
+      if (!embedding || !turn) continue;
+      await setTurnEmbedding(deps.pool, turn.id, embedding, deps.embeddingModel);
       total += 1;
     }
     // Fewer than a full batch means we've drained the backlog.

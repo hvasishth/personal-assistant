@@ -21,7 +21,7 @@ import { readFile } from "node:fs/promises";
 import { loadConfig } from "../config";
 import { setLogLevel } from "../logger";
 import { createPool } from "../db";
-import { createProvider } from "../llm";
+import { createLlmProvider } from "../llm";
 import { createEmbeddingProvider } from "../embeddings";
 import { getOrCreateCliUser } from "../recall/repo";
 import { ingestClaudeExport, ingestNotesFolder } from "../recall/ingest";
@@ -32,12 +32,12 @@ import type { RetrievalMode } from "../recall/types";
 
 const MODES: RetrievalMode[] = ["hybrid", "vector", "lexical", "hybrid_no_time"];
 
-interface Parsed {
+interface ParsedArgs {
   positionals: string[];
   flags: Record<string, string | boolean>;
 }
 
-function parseArgs(args: string[]): Parsed {
+function parseArgs(args: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < args.length; i++) {
@@ -58,7 +58,7 @@ function parseArgs(args: string[]): Parsed {
   return { positionals, flags };
 }
 
-function flagStr(flags: Parsed["flags"], key: string): string | undefined {
+function flagStr(flags: ParsedArgs["flags"], key: string): string | undefined {
   const v = flags[key];
   return typeof v === "string" ? v : undefined;
 }
@@ -125,42 +125,42 @@ async function main(): Promise<void> {
   const pool = createPool(config.databaseUrl);
 
   try {
-    const provider = createProvider(config);
-    const embeddings = createEmbeddingProvider(config);
+    const llmProvider = createLlmProvider(config);
+    const embeddingProvider = createEmbeddingProvider(config);
     const email = flagStr(flags, "user") ?? "cli@local";
     const userId = await getOrCreateCliUser(pool, email);
 
     switch (command) {
       case "ingest": {
-        const claude = flagStr(flags, "claude");
-        const notes = flagStr(flags, "notes");
-        if (!claude && !notes) {
+        const claudeExportPath = flagStr(flags, "claude");
+        const notesDirPath = flagStr(flags, "notes");
+        if (!claudeExportPath && !notesDirPath) {
           console.error("ingest needs --claude <file> and/or --notes <dir>");
           process.exitCode = 1;
           return;
         }
-        const deps = { pool, embeddings, embeddingModel: config.embeddingModel };
-        if (claude) {
-          const r = await ingestClaudeExport(deps, userId, claude);
+        const deps = { pool, embeddingProvider, embeddingModel: config.embeddingModel };
+        if (claudeExportPath) {
+          const ingestResult = await ingestClaudeExport(deps, userId, claudeExportPath);
           console.log(
-            `claude_export: ${r.conversations} conversations, +${r.inserted} turns, ${r.skipped} skipped`,
+            `claude_export: ${ingestResult.conversations} conversations, +${ingestResult.inserted} turns, ${ingestResult.skipped} skipped`,
           );
         }
-        if (notes) {
-          const r = await ingestNotesFolder(deps, userId, notes);
+        if (notesDirPath) {
+          const ingestResult = await ingestNotesFolder(deps, userId, notesDirPath);
           console.log(
-            `meeting_notes: ${r.conversations} conversations, +${r.inserted} turns, ${r.skipped} skipped`,
+            `meeting_notes: ${ingestResult.conversations} conversations, +${ingestResult.inserted} turns, ${ingestResult.skipped} skipped`,
           );
         }
         break;
       }
 
       case "backfill": {
-        const n = await backfillEmbeddings(
-          { pool, embeddings, embeddingModel: config.embeddingModel },
+        const embeddedCount = await backfillEmbeddings(
+          { pool, embeddingProvider, embeddingModel: config.embeddingModel },
           userId,
         );
-        console.log(`embedded ${n} turns`);
+        console.log(`embedded ${embeddedCount} turns`);
         break;
       }
 
@@ -172,11 +172,11 @@ async function main(): Promise<void> {
           return;
         }
         const mode = asMode(flagStr(flags, "mode"));
-        const top = flagStr(flags, "top");
-        const topK = top ? Number(top) : 5;
+        const topFlag = flagStr(flags, "top");
+        const topK = topFlag ? Number(topFlag) : 5;
         process.stdout.write("\n");
         const result = await runRecall(
-          { pool, provider, embeddings },
+          { pool, llmProvider, embeddingProvider },
           userId,
           question,
           { mode, topK, onToken: (t) => process.stdout.write(t) },
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
           return;
         }
         const result = await runEval(
-          { pool, provider, embeddings },
+          { pool, llmProvider, embeddingProvider },
           userId,
           golden,
           { withAnswers: flags.answers === true },

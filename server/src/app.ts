@@ -6,7 +6,7 @@ import express, {
 } from "express";
 import type { Config } from "./config";
 import type { LLMProvider } from "./llm/types";
-import { createProvider } from "./llm";
+import { createLlmProvider } from "./llm";
 import { makeChatRoute } from "./routes/chat";
 import { makeConversationsRouter } from "./routes/conversations";
 import { createPool, type Pool } from "./db";
@@ -25,9 +25,9 @@ import { log } from "./logger";
 // build it from config.
 export function createApp(
   config: Config,
-  provider: LLMProvider = createProvider(config),
+  llmProvider: LLMProvider = createLlmProvider(config),
   pool: Pool = createPool(config.databaseUrl),
-  embeddings: EmbeddingProvider = createEmbeddingProvider(config),
+  embeddingProvider: EmbeddingProvider = createEmbeddingProvider(config),
 ): Express {
   const app = express();
 
@@ -37,7 +37,7 @@ export function createApp(
 
   // Liveness probe. Useful for curl right now and for Docker health checks later.
   app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", provider: config.provider, model: config.model });
+    res.json({ status: "ok", provider: config.llmProviderName, model: config.llmModel });
   });
 
   // Auth (Step 4): signup / login / logout / me.
@@ -48,7 +48,7 @@ export function createApp(
   // session cookie is required; requireAuth short-circuits with 401 otherwise,
   // so the handler only runs when authed (and req.userId is set).
   const requireAuth = makeRequireAuth(pool);
-  app.post("/api/chat", requireAuth, makeChatRoute(provider, pool, embeddings));
+  app.post("/api/chat", requireAuth, makeChatRoute(llmProvider, pool, embeddingProvider));
 
   // Conversation list + history for the sidebar (Step 4), also behind auth.
   app.use("/api/conversations", requireAuth, makeConversationsRouter(pool));

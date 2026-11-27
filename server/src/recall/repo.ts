@@ -7,8 +7,8 @@ import type { Pool } from "../db";
 import type { ScoredTurn, TurnRow } from "./types";
 
 // pgvector wants a literal like '[0.1,0.2,0.3]'.
-export function toVectorLiteral(vec: number[]): string {
-  return `[${vec.join(",")}]`;
+export function toVectorLiteral(embedding: number[]): string {
+  return `[${embedding.join(",")}]`;
 }
 
 // A time window with nullable, open-ended bounds. start is inclusive, end
@@ -114,9 +114,9 @@ export async function hydrateTurns(
       WHERE m.id = ANY($1)`,
     [ids],
   );
-  const byId = new Map(rows.map((r) => [r.id, r]));
+  const rowsById = new Map(rows.map((r) => [r.id, r]));
   return ids
-    .map((id) => byId.get(id))
+    .map((id) => rowsById.get(id))
     .filter((r): r is NonNullable<typeof r> => r !== undefined)
     .map((r) => ({
       id: r.id,

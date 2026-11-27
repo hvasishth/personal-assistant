@@ -23,8 +23,8 @@ const DUPLICATE_DISTANCE = 0.05;
 
 export interface MemoryDeps {
   pool: Pool;
-  provider: LLMProvider;
-  embeddings: EmbeddingProvider;
+  llmProvider: LLMProvider;
+  embeddingProvider: EmbeddingProvider;
 }
 
 interface ExtractedFact {
@@ -37,16 +37,16 @@ export async function extractAndStoreFacts(
   args: { userId: string; content: string; sourceMessageId?: string },
 ): Promise<void> {
   try {
-    const facts = await extractFacts(deps.provider, args.content);
+    const facts = await extractFacts(deps.llmProvider, args.content);
     if (facts.length === 0) return;
 
-    const vectors = await deps.embeddings.embed(facts.map((f) => f.statement));
+    const factEmbeddings = await deps.embeddingProvider.embed(facts.map((f) => f.statement));
     for (let i = 0; i < facts.length; i++) {
       const fact = facts[i]!;
-      const embedding = vectors[i];
+      const embedding = factEmbeddings[i];
       if (!embedding) continue;
 
-      const nearest = await searchSimilarLiveFacts(
+      const nearestFacts = await searchSimilarLiveFacts(
         deps.pool,
         args.userId,
         embedding,
@@ -54,14 +54,14 @@ export async function extractAndStoreFacts(
       );
 
       // Already know something almost identical -> nothing to do.
-      if (nearest.some((n) => n.distance < DUPLICATE_DISTANCE)) continue;
+      if (nearestFacts.some((match) => match.distance < DUPLICATE_DISTANCE)) continue;
 
       const newId = await insertFact(deps.pool, {
         userId: args.userId,
         content: fact.statement,
         subject: fact.subject,
         embedding,
-        embeddingModel: deps.embeddings.name,
+        embeddingModel: deps.embeddingProvider.name,
         sourceMessageId: args.sourceMessageId,
       });
 
@@ -69,12 +69,12 @@ export async function extractAndStoreFacts(
       // it: supersede the old row. This is the cheap, threshold-free half of the
       // reconcile; a stronger version would ask a model whether the two actually
       // conflict (accurate, slower) instead of trusting the subject label.
-      const prior = nearest.find(
-        (n) => n.id !== newId && n.subject !== null && subjectEq(n.subject, fact.subject),
+      const priorFact = nearestFacts.find(
+        (match) => match.id !== newId && match.subject !== null && subjectEq(match.subject, fact.subject),
       );
-      if (prior) {
-        await supersedeFact(deps.pool, prior.id, newId);
-        log.debug("superseded fact", prior.id, "->", newId, "subject:", fact.subject);
+      if (priorFact) {
+        await supersedeFact(deps.pool, priorFact.id, newId);
+        log.debug("superseded fact", priorFact.id, "->", newId, "subject:", fact.subject);
       }
     }
   } catch (err) {
@@ -85,7 +85,7 @@ export async function extractAndStoreFacts(
 // Ask a cheap model for durable facts, each with a subject + a one-sentence
 // statement. Returns [] on nothing-to-remember or any parse failure.
 async function extractFacts(
-  provider: LLMProvider,
+  llmProvider: LLMProvider,
   message: string,
 ): Promise<ExtractedFact[]> {
   const prompt: ChatMessage[] = [
@@ -104,7 +104,7 @@ async function extractFacts(
   ];
 
   let text = "";
-  for await (const ev of provider.streamChat(prompt, {
+  for await (const ev of llmProvider.streamChat(prompt, {
     model: EXTRACT_MODEL,
     maxTokens: 256,
   })) {
@@ -117,26 +117,26 @@ async function extractFacts(
 // Pull the first JSON array out of the reply and keep well-formed facts. Also
 // tolerates the older bare-string shape ("...fact...") for back-compat.
 function parseFacts(raw: string): ExtractedFact[] {
-  const json = raw.match(/\[[\s\S]*\]/)?.[0];
-  if (!json) return [];
+  const jsonText = raw.match(/\[[\s\S]*\]/)?.[0];
+  if (!jsonText) return [];
   try {
-    const arr: unknown = JSON.parse(json);
-    if (!Array.isArray(arr)) return [];
-    const out: ExtractedFact[] = [];
-    for (const item of arr) {
+    const parsed: unknown = JSON.parse(jsonText);
+    if (!Array.isArray(parsed)) return [];
+    const facts: ExtractedFact[] = [];
+    for (const item of parsed) {
       if (typeof item === "string" && item.trim().length > 0) {
-        out.push({ subject: "general", statement: item.trim() });
+        facts.push({ subject: "general", statement: item.trim() });
       } else if (typeof item === "object" && item !== null) {
-        const o = item as Record<string, unknown>;
+        const fields = item as Record<string, unknown>;
         const statement =
-          typeof o.statement === "string" ? o.statement.trim() : "";
-        const subject = typeof o.subject === "string" ? o.subject.trim() : "";
+          typeof fields.statement === "string" ? fields.statement.trim() : "";
+        const subject = typeof fields.subject === "string" ? fields.subject.trim() : "";
         if (statement.length > 0) {
-          out.push({ subject: subject.length > 0 ? subject : "general", statement });
+          facts.push({ subject: subject.length > 0 ? subject : "general", statement });
         }
       }
     }
-    return out;
+    return facts;
   } catch {
     return [];
   }

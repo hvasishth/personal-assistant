@@ -4,12 +4,12 @@ import type { ChatMessage, LLMProvider, StreamOptions } from "../llm/types";
 // (query parsing, fact extraction) need the whole reply before continuing.
 // Throws on a provider error event so the caller can fall back.
 export async function completeText(
-  provider: LLMProvider,
+  llmProvider: LLMProvider,
   messages: ChatMessage[],
   opts: StreamOptions = {},
 ): Promise<string> {
   let text = "";
-  for await (const ev of provider.streamChat(messages, opts)) {
+  for await (const ev of llmProvider.streamChat(messages, opts)) {
     if (ev.type === "text") text += ev.text;
     else if (ev.type === "error") throw new Error(ev.message);
   }

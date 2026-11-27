@@ -49,36 +49,36 @@ const QUERIES = [
 // or not the provider returns unit vectors.
 function cosineDistance(a: number[], b: number[]): number {
   let dot = 0;
-  let na = 0;
-  let nb = 0;
+  let normA = 0;
+  let normB = 0;
   for (let i = 0; i < a.length; i++) {
     const ai = a[i] ?? 0;
     const bi = b[i] ?? 0;
     dot += ai * bi;
-    na += ai * ai;
-    nb += bi * bi;
+    normA += ai * ai;
+    normB += bi * bi;
   }
-  if (na === 0 || nb === 0) return 1;
-  return 1 - dot / (Math.sqrt(na) * Math.sqrt(nb));
+  if (normA === 0 || normB === 0) return 1;
+  return 1 - dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-async function run(provider: EmbeddingProvider): Promise<void> {
-  console.log(`\n================ provider: ${provider.name} (dim ${provider.dim}) ================`);
+async function run(embeddingProvider: EmbeddingProvider): Promise<void> {
+  console.log(`\n================ provider: ${embeddingProvider.name} (dim ${embeddingProvider.dim}) ================`);
 
   // Embed facts and queries in TWO batch calls total (not one call per query),
   // so we stay under Voyage's free-tier 3 requests/minute limit.
-  const factVecs = await provider.embed(FACTS);
-  const queryVecs = await provider.embed(QUERIES);
+  const factEmbeddings = await embeddingProvider.embed(FACTS);
+  const queryEmbeddings = await embeddingProvider.embed(QUERIES);
 
-  QUERIES.forEach((query, qi) => {
-    const qvec = queryVecs[qi];
-    if (!qvec) {
+  QUERIES.forEach((query, queryIndex) => {
+    const queryEmbedding = queryEmbeddings[queryIndex];
+    if (!queryEmbedding) {
       console.log(`\n(no embedding returned for query: ${query})`);
       return;
     }
     const ranked = FACTS.map((fact, i) => ({
       fact,
-      distance: cosineDistance(qvec, factVecs[i] ?? []),
+      distance: cosineDistance(queryEmbedding, factEmbeddings[i] ?? []),
     })).sort((x, y) => x.distance - y.distance);
 
     console.log(`\nquery: "${query}"`);
@@ -88,7 +88,7 @@ async function run(provider: EmbeddingProvider): Promise<void> {
   });
 }
 
-function buildProvider(name: string): EmbeddingProvider {
+function buildEmbeddingProvider(name: string): EmbeddingProvider {
   if (name === "voyage") {
     const key = process.env.VOYAGE_API_KEY;
     if (!key) {
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   const which = process.argv[2] ?? "fake"; // fake | voyage | both
   const names = which === "both" ? ["fake", "voyage"] : [which];
   for (const name of names) {
-    await run(buildProvider(name));
+    await run(buildEmbeddingProvider(name));
   }
 }
 
