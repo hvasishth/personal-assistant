@@ -57,29 +57,48 @@ export async function* parseAnthropicStream(
     const eventBlocks = buffer.split('\n\n');
     buffer = eventBlocks.pop() ?? '';   // last piece may be a half-received event
     for (const eventBlock of eventBlocks) {
-      if (eventBlock.startsWith('event:')) {
-        const [eventPart, data] = eventBlock.split('data:');
-        const event = eventPart?.split(':')?.[1]?.trim();
-        const parsedData = data ? JSON.parse(data) : undefined;
-        const deltaText = parsedData? parsedData.delta?.text : '';
-        log.trace('anthropic sse block:', JSON.stringify(eventBlock));
-        if (event === 'message_start') {
-          continue;
-        } else if (event === 'content_block_start') {
-          continue;
-        } else if (event === 'content_block_delta') {
-          if (parsedData?.delta?.type === 'text_delta') {
-            yield { type: 'text', text: deltaText };
+      let event: string = '';
+      let dataParts: string[] = [];
+      const lines = eventBlock.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          event = line.slice(6);
+          if (event.startsWith(' ')) {
+            event = event.slice(1);
           }
-        } else if (event === 'ping') {
           continue;
-        } else if (event === 'content_block_stop') {
-          continue;
-        } else if (event === 'message_stop') {
-          yield { type: 'done' };
-        } else if (event === 'error') {
-          yield { type: 'error', message: data? JSON.parse(data)?.error?.message ?? '': '' };
         }
+        if (line.startsWith(':')) {
+          continue;
+        }
+        if (line.startsWith('data:')) {
+          let dataPart = line.slice(5)
+          dataParts.push(dataPart.startsWith(' ')? dataPart.slice(1): dataPart);
+        }
+      }
+      const data = dataParts.join('\n');
+      const parsedData = data ? JSON.parse(data) : undefined;
+
+
+      const deltaText = parsedData ? parsedData.delta?.text : '';
+      log.trace('anthropic sse block:', JSON.stringify(eventBlock));
+      if (event === 'message_start') {
+        continue;
+      } else if (event === 'content_block_start') {
+        continue;
+      } else if (event === 'content_block_delta') {
+        if (parsedData?.delta?.type === 'text_delta') {
+          yield { type: 'text', text: deltaText };
+        }
+      } else if (event === 'ping') {
+        continue;
+      } else if (event === 'content_block_stop') {
+        continue;
+      } else if (event === 'message_stop') {
+        yield { type: 'done' };
+        return;
+      } else if (event === 'error') {
+        yield { type: 'error', message: data ? JSON.parse(data)?.error?.message ?? '' : '' };
       }
     }
   }
